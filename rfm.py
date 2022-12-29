@@ -1,13 +1,13 @@
 import numpy as np
 import torch
 from numpy.linalg import solve
-import classic_kernel
+import kernels
 from tqdm import tqdm
 import hickle
 
 
 def laplace_kernel_M(pair1, pair2, bandwidth, M):
-    return classic_kernel.laplacian_M(pair1, pair2, bandwidth, M)
+    return kernels.laplacian_M(pair1, pair2, bandwidth, M)
 
 
 def get_grads(X, sol, L, P, batch_size=2):
@@ -23,7 +23,7 @@ def get_grads(X, sol, L, P, batch_size=2):
 
     K = laplace_kernel_M(X, x, L, P)
 
-    dist = classic_kernel.euclidean_distances_M(X, x, P, squared=False)
+    dist = kernels.euclidean_distances_M(X, x, P, squared=False)
     dist = torch.where(dist < 1e-10, torch.zeros(1).float(), dist)
 
     K = K/dist
