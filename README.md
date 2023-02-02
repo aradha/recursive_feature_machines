@@ -26,6 +26,7 @@ Code has been tested using PyTorch 1.13, Python 3.8
 
 ## Testing installation
 ```python
+import torch
 from rfm import RecursiveFeatureMachine
 from rfm.kernels import laplacian_M, laplacian_M_grad1
 bw = 10
@@ -38,10 +39,10 @@ n = 1000 # samples
 d = 100  # dimension
 c = 2    # classes
 
-X_train = np.random.randn(n, d)
-X_test = np.random.randn(n, d)
-y_train = np.random.randn(n, c)
-y_test = np.random.randn(n, c)
+X_train = torch.randn(n, d)
+X_test = torch.randn(n, d)
+y_train = torch.randn(n, c)
+y_test = torch.randn(n, c)
 
 model.fit((X_train, y_train), (X_test, y_test), loader=False)
 ```
