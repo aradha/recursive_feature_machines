@@ -18,7 +18,6 @@ setuptools.setup(
     license='MIT license',
     packages=['rfm'],
     install_requires=[
-      'pytorch>=1.13',
       'torchvision>=0.14',
       'hickle>=5.0',
       'tqdm>=4.64'
