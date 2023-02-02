@@ -1,1 +1,1 @@
-from recursive_feature_machine import RecursiveFeatureMachine
+from .recursive_feature_machine import RecursiveFeatureMachine
