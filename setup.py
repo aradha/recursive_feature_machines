@@ -5,7 +5,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setuptools.setup(
     name='rfm',
-    version='2.0.0',
+    version='1.0',
     author='Adityanarayanan Radhakrishnan, Daniel Beaglehole, Parthe Pandit',
     author_email='aradha@mit.edu, dbeaglehole@ucsd.edu, parthepandit@ucsd.edu',
     description='Recursive procedure for Task-specific Feature Learning with Kernel predictors',
