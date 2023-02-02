@@ -98,12 +98,6 @@ class RecursiveFeatureMachine:
             X_train, y_train = train_loader
             X_test, y_test = test_loader
             
-            X_train = torch.from_numpy(X_train).float()
-            X_test = torch.from_numpy(X_test).float()
-            y_train = torch.from_numpy(y_train).float()
-            y_test = torch.from_numpy(y_test).float()
-            
-        
         for i in range(iters):
             self.fit_predictor(X_train, y_train)
             
