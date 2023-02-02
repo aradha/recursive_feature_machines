@@ -65,7 +65,7 @@ class RecursiveFeatureMachine:
         self.centers = centers
         if self.M is None:
             self.M = torch.eye(centers.shape[-1])
-        if (len(X_train) > 20_000):
+        if (len(centers) > 20_000):
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets)
