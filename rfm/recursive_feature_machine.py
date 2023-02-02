@@ -1,7 +1,5 @@
-import numpy as np
 from eigenpro import EigenProRegressor
 import torch
-from numpy.linalg import solve
 from tqdm import tqdm
 import hickle
 
@@ -140,24 +138,3 @@ class RecursiveFeatureMachine:
             return (1.*(targets.argmax(-1) == preds.argmax(-1))).mean()*100.
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
-
-
-
-if __name__ == "__main__":
-
-    from kernels import laplacian_M, laplacian_M_grad1
-    bw = 10
-    kernel_fn = lambda x, z, M: laplacian_M(x, z, M, bw)
-    kernel_grad1 = lambda x, z, M: laplacian_M_grad1(x, z, M, bw)
-    model = RecursiveFeatureMachine(kernel_fn, kernel_grad1)
-    
-    n = 1000 # samples
-    d = 100  # dimension
-    c = 2    # classes
-    
-    X_train = np.random.randn(n, d)
-    X_test = np.random.randn(n, d)
-    y_train = np.random.randn(n, c)
-    y_test = np.random.randn(n, c)
-
-    model.fit((X_train, y_train), (X_test, y_test), loader=False)
