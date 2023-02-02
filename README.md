@@ -10,7 +10,7 @@ There are two notebooks to test out RFM:
 3. torchvision==0.14.0
 4. hickle==5.0.2
 5. tqdm
-6. eigenpro>=2.0
+6. eigenpro>=2.0 \
 `eigenpro` can be installed from [https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch](github.com/EigenPro/EigenPro-pytorch)
 
 Can be installed using the command
