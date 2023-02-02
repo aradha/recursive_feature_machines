@@ -18,7 +18,7 @@ Can be installed using the command
 - tqdm
 - eigenpro>=2.0 
 
-`eigenpro` can be installed from [https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch](github.com/EigenPro/EigenPro-pytorch)
+`eigenpro` can be installed from [github.com/EigenPro/EigenPro-pytorch](https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch)
 
 
 ## Stable behavior
