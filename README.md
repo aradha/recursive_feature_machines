@@ -4,22 +4,24 @@ There are two notebooks to test out RFM:
 - low_rank.ipynb (an example of low rank polynomials)
 - svhn.ipynb (for the SVHN dataset)
 
-Requirements:
+## Requirements:
 1. Python 3
 2. pytorch>=1.13
 3. torchvision==0.14.0
 4. hickle==5.0.2
 5. tqdm
+6. eigenpro>=2.0
+`eigenpro` can be installed from [https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch](github.com/EigenPro/EigenPro-pytorch)
 
 Can be installed using the command
 ```
  pip install git+https://github.com/aradha/recursive_feature_machines.git@pip_install
 ```
 
-# Stable behavior
+## Stable behavior
 Code has been tested using PyTorch 1.13, Python 3.8
 
-# Testing installation
+## Testing installation
 ```python
 from rfm import RecursiveFeatureMachine
 from rfm.kernels import laplacian_M, laplacian_M_grad1
