@@ -20,6 +20,6 @@ setuptools.setup(
     install_requires=[
       'torchvision>=0.14',
       'hickle>=5.0',
-      'tqdm>=4.64'
+      'tqdm'
     ],
 )
