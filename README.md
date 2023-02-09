@@ -12,4 +12,4 @@ Requirements:
 5. tqdm==4.64.1
 
 # Paper
-[https://arxiv.org/abs/2212.13881](Feature learning in neural networks and kernel machines that recursively learn features)
+[Feature learning in neural networks and kernel machines that recursively learn features](https://arxiv.org/abs/2212.13881)
