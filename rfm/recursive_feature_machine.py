@@ -72,7 +72,7 @@ class RecursiveFeatureMachine:
 
 
     def fit_predictor_lstsq(self, centers, targets):
-        return torch.linalg.solve(self.kernel(centers, centers), targets)
+        return torch.linalg.lstsq(self.kernel(centers, centers), targets)[0]
 
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
@@ -89,8 +89,10 @@ class RecursiveFeatureMachine:
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True):
-        
-        self.fit_using_eigenpro = (method=='eigenpro')
+        if method=='eigenpro':
+            #self.fit_using_eigenpro = (method.lower()=='eigenpro')
+            raise NotImplementedError("EigenPro method is not yet supported. Please try again with `method='lstlq'`")
+        self.fit_using_eigenpro = False
         
         if loader:
             print("Loaders provided")
