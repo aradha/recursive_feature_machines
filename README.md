@@ -16,10 +16,6 @@ Can be installed using the command
 - torchvision==0.14.0
 - hickle==5.0.2
 - tqdm
-- eigenpro2
-
-`eigenpro2` can be installed from [github.com/EigenPro/EigenPro-pytorch](https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch)
-
 
 ## Stable behavior
 Code has been tested using PyTorch 1.13, Python 3.8
