@@ -16,7 +16,7 @@ setup(
         "Bug Tracker": "https://github.com/aradha/recursive_feature_machines/issues"
     },
     license='MIT license',
-    packages=find_packages()m
+    packages=find_packages(),
     install_requires=[
       'torchvision>=0.14',
       'hickle>=5.0',
