@@ -1,4 +1,4 @@
-from eigenpro import EigenProRegressor
+from eigenpro2 import KernelModel
 import torch
 from tqdm import tqdm
 import hickle
@@ -77,7 +77,7 @@ class RecursiveFeatureMachine:
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
-        self.model = EigenProRegressor(self.kernel, centers, n_classes, device=DEVICE)
+        self.model = KernelModel(self.kernel, centers, n_classes, device=DEVICE)
         _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, **kwargs)
         return self.model.weights
 
