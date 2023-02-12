@@ -1,9 +1,9 @@
-import setuptools
+from setuptools import setup, find_packages
 
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
-setuptools.setup(
+setup(
     name='rfm',
     version='1.0',
     author='Adityanarayanan Radhakrishnan, Daniel Beaglehole, Parthe Pandit',
@@ -16,7 +16,7 @@ setuptools.setup(
         "Bug Tracker": "https://github.com/aradha/recursive_feature_machines/issues"
     },
     license='MIT license',
-    packages=['rfm'],
+    packages=find_packages()m
     install_requires=[
       'torchvision>=0.14',
       'hickle>=5.0',
