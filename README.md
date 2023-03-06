@@ -24,7 +24,6 @@ Code has been tested using PyTorch 1.13, Python 3.8
 ```python
 import torch
 from rfm import LaplaceRFM
-bw = 10
 
 def fstar(X):
     return torch.cat([
