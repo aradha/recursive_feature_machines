@@ -132,23 +132,24 @@ class LaplaceRFM(RecursiveFeatureMachine):
         K = K/dist
         K[K == float("Inf")] = 0.
 
-        n, d = self.centers.shape
-        n, c = self.weights.shape
-        m, d = samples.shape
+        p, d = self.centers.shape
+        p, c = self.weights.shape
+        n, d = samples.shape
+        
+        centers_term = (
+            K # (n, p)
+            @ (
+                self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
+            ).reshape(p, c*d) # (p, cd)
+        ).view(n, c, d)
 
-        step2 = (K @ (
-            self.weights.view(n, c, 1) * (self.centers @ self.M).reshape(n, 1, d)
-        ).view(n, c*d)
-        ).view(m, c, d)
+        samples_term = (
+                K # (n, p)
+                @ self.weights # (p, c)
+            ).reshape(n, c, 1)
+        samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
-        step3 = K @ self.weights
-
-
-        step3 = step3.reshape(m, c, 1)
-        x1 = (samples @ self.M).reshape(m, 1, d)
-        step3 = step3 * x1
-
-        G = (step2 - step3) / L
+        G = (centers_term - samples_term) / self.bandwidth
         self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
 
@@ -158,12 +159,15 @@ if __name__ == "__main__":
     
     # define target function
     def fstar(X):
-        return (X[:, 0]  > 0)[:,None]
+        return torch.cat([
+            (X[:, 0]  > 0)[:,None],
+            (X[:, 1]  < 0.1)[:,None]],
+            axis=1)
+
 
     # create low rank data
     n = 4000
-    d = 3
-    L = 1 # bandwidth
+    d = 100
     np.random.seed(0)
     X_train = torch.from_numpy(np.random.normal(scale=0.5, size=(n,d)))
     X_test = torch.from_numpy(np.random.normal(scale=0.5, size=(n,d)))
