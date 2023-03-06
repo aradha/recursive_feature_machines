@@ -18,17 +18,16 @@ def euclidean_distances(samples, centers, squared=True):
 
     return distances
 
-
 def euclidean_distances_M(samples, centers, M, squared=True):
     
-    samples_norm2 = torch.einsum('md, mD, dD -> m', samples, samples, M)
+    samples_norm2 = ((samples @ M) * samples).sum(-1)
 
     if samples is centers:
         centers_norm2 = samples_norm2
     else:
-        centers_norm2 = torch.einsum('md, mD, dD -> m', centers, centers, M)
+        centers_norm2 = ((centers @ M) * centers).sum(-1)
 
-    distances = -2 * torch.einsum('md, nD, dD -> mn', samples, centers, M)
+    distances = -2 * (samples @ M) @ centers.T
     distances.add_(samples_norm2.view(-1, 1))
     distances.add_(centers_norm2)
 
@@ -36,6 +35,7 @@ def euclidean_distances_M(samples, centers, M, squared=True):
         distances.clamp_(min=0).sqrt_()
 
     return distances
+
 
 def laplacian(samples, centers, bandwidth):
     '''Laplacian kernel.
