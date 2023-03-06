@@ -24,7 +24,6 @@ Code has been tested using PyTorch 1.13, Python 3.8
 ```python
 import torch
 from rfm import LaplaceRFM
-from rfm.kernels import laplacian_M, laplacian_M_grad1
 bw = 10
 
 def fstar(X):
