@@ -43,11 +43,11 @@ class RecursiveFeatureMachine:
 
 
     def fit_predictor_lstsq(self, centers, targets):
-        return torch.from_numpy(np.linalg.solve(
+        return torch.linalg.solve(
             self.kernel(centers, centers) 
             + 1e-3*torch.eye(len(centers)), 
             targets
-        ))
+        )
 
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
