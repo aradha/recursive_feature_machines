@@ -1,6 +1,6 @@
 from eigenpro2 import KernelModel
 import torch, numpy as np
-from kernels import laplacian_M, euclidean_distances_M
+from .kernels import laplacian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
 
