@@ -1,5 +1,6 @@
 from eigenpro2 import KernelModel
-import torch, numpy as np, kernels
+import torch, numpy as np
+from kernels import laplacian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
 
@@ -125,7 +126,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         
         K = self.kernel(samples, self.centers)
 
-        dist = kernels.euclidean_distances_M(samples, self.centers, self.M, squared=False)
+        dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
         dist = torch.where(dist < 1e-10, torch.zeros(1).float(), dist)
 
         K = K/dist
@@ -134,7 +135,6 @@ class LaplaceRFM(RecursiveFeatureMachine):
         n, d = self.centers.shape
         n, c = self.weights.shape
         m, d = samples.shape
-        print(m, n, c, d)
 
         step2 = (K @ (
             self.weights.view(n, c, 1) * (self.centers @ self.M).reshape(n, 1, d)
@@ -150,13 +150,10 @@ class LaplaceRFM(RecursiveFeatureMachine):
 
         G = (step2 - step3) / L
         self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
-        print(self.M)
 
 
 
 if __name__ == "__main__":
-    import numpy as np, torch
-    from kernels import laplacian_M, laplacian_M_grad1
     torch.set_default_dtype(torch.float64)
     
     # define target function
@@ -181,4 +178,4 @@ if __name__ == "__main__":
         loader=False,
         iters=5,
         classif=False
-    )
+    ) 
