@@ -174,7 +174,7 @@ if __name__ == "__main__":
     y_train = fstar(X_train).double()
     y_test = fstar(X_test).double()
 
-    model = LaplaceRFM()
+    model = LaplaceRFM(bandwidth=1.)
     model.fit(
         (X_train, y_train), 
         (X_test, y_test), 
