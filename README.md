@@ -42,3 +42,7 @@ y_test = torch.randn(n, c)
 
 model.fit((X_train, y_train), (X_test, y_test), loader=False)
 ```
+
+
+# Paper
+[Feature learning in neural networks and kernel machines that recursively learn features](https://arxiv.org/abs/2212.13881)
