@@ -155,7 +155,10 @@ class LaplaceRFM(RecursiveFeatureMachine):
         samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
         G = (centers_term - samples_term) / self.bandwidth
-        self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
+        if self.diag:
+            torch.einsum('ncd, ncd -> d', G, G)/len(samples)
+        else:
+            self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
 
 
