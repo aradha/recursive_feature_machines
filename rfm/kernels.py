@@ -19,6 +19,8 @@ def euclidean_distances(samples, centers, squared=True):
     return distances
 
 def euclidean_distances_M(samples, centers, M, squared=True):
+    if len(M.shape)==1:
+        return euclidean_distances_M_diag(samples, centers, M, squared=squared)
     
     samples_norm2 = ((samples @ M) * samples).sum(-1)
 
@@ -36,6 +38,23 @@ def euclidean_distances_M(samples, centers, M, squared=True):
 
     return distances
 
+def euclidean_distances_M_diag(samples, centers, M, squared=True):
+    "assumes M is a diagonal matrix"
+    samples_norm2 = ((samples * M) * samples).sum(-1)
+
+    if samples is centers:
+        centers_norm2 = samples_norm2
+    else:
+        centers_norm2 = ((centers * M) * centers).sum(-1)
+
+    distances = -2 * (samples * M) @ centers.T
+    distances.add_(samples_norm2.view(-1, 1))
+    distances.add_(centers_norm2)
+
+    if not squared:
+        distances.clamp_(min=0).sqrt_()
+
+    return distances
 
 def laplacian(samples, centers, bandwidth):
     '''Laplacian kernel.
