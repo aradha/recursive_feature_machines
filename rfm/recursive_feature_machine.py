@@ -1,4 +1,7 @@
-from eigenpro2 import KernelModel
+try:
+    from eigenpro2 import KernelModel
+except ModuleNotFoundError:
+    print('`eigenpro2` not installed.. using torch.linalg.solve for training kernel model')
 import torch, numpy as np
 from .kernels import laplacian_M, euclidean_distances_M
 from tqdm import tqdm
