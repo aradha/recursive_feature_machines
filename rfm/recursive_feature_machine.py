@@ -12,9 +12,10 @@ else:
     DEV_MEM_GB = 8
 
 
-class RecursiveFeatureMachine:
+class RecursiveFeatureMachine(torch.nn.Module):
 
     def __init__(self):
+        super().__init__()
         self.M = None
         self.model = None
         self.device = DEVICE
@@ -35,7 +36,7 @@ class RecursiveFeatureMachine:
     def fit_predictor(self, centers, targets, **kwargs):
         self.centers = centers
         if self.M is None:
-            self.M = torch.eye(centers.shape[-1])
+            self.M = torch.eye(centers.shape[-1], device=self.device)
         if (len(centers) > 20_000) or self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
@@ -45,7 +46,7 @@ class RecursiveFeatureMachine:
     def fit_predictor_lstsq(self, centers, targets):
         return torch.linalg.solve(
             self.kernel(centers, centers) 
-            + 1e-3*torch.eye(len(centers)), 
+            + 1e-3*torch.eye(len(centers), device=self.device), 
             targets
         )
 
@@ -117,7 +118,7 @@ class RecursiveFeatureMachine:
 class LaplaceRFM(RecursiveFeatureMachine):
 
     def __init__(self, bandwidth=1.):
-        super(LaplaceRFM, self).__init__()
+        super().__init__()
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         
