@@ -128,7 +128,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         K = self.kernel(samples, self.centers)
 
         dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
-        dist = torch.where(dist < 1e-10, torch.zeros(1).float(), dist)
+        dist = torch.where(dist < 1e-10, torch.zeros(1, device=dist.device).float(), dist)
 
         K = K/dist
         K[K == float("Inf")] = 0.
