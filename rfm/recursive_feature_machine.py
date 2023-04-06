@@ -14,10 +14,11 @@ else:
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self):
+    def __init__(self, diag=False):
         super().__init__()
         self.M = None
         self.model = None
+        self.diag = diag # if True, Mahalanobis matrix M will be diagonal
         self.device = DEVICE
         self.mem_gb = DEV_MEM_GB
 
@@ -36,7 +37,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit_predictor(self, centers, targets, **kwargs):
         self.centers = centers
         if self.M is None:
-            self.M = torch.eye(centers.shape[-1], device=self.device)
+            if self.diag:
+                self.M = torch.ones(centers.shape[-1], device=self.device)
+            else:
+                self.M = torch.eye(centers.shape[-1], device=self.device)
         if (len(centers) > 20_000) or self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
@@ -117,8 +121,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 class LaplaceRFM(RecursiveFeatureMachine):
 
-    def __init__(self, bandwidth=1.):
-        super().__init__()
+    def __init__(self, bandwidth=1., *args):
+        super().__init__(*args)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         
