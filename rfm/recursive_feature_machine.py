@@ -116,8 +116,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 class LaplaceRFM(RecursiveFeatureMachine):
 
-    def __init__(self, bandwidth=1., *args):
-        super().__init__(*args)
+    def __init__(self, bandwidth=1., **kwargs):
+        super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         
