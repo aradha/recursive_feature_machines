@@ -27,7 +27,8 @@ from rfm import LaplaceRFM
 
 if torch.cuda.is_available():
     DEVICE = torch.device("cuda")
-    DEV_MEM_GB = torch.cuda.get_device_properties(DEVICE).total_memory//1024**3 - 1 # GPU memory in GB, keeping aside 1GB for safety
+    # find GPU memory in GB, keeping aside 1GB for safety
+    DEV_MEM_GB = torch.cuda.get_device_properties(DEVICE).total_memory//1024**3 - 1 
 else:
     DEVICE = torch.device("cpu")
     DEV_MEM_GB = 8
