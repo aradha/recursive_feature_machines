@@ -36,7 +36,7 @@ def fstar(X):
     return torch.cat([(X[:,0]>0)[:,None], 
 	(X[:,1]<0.5)[:,None]], axis=1).float()
 
-model =LaplaceRFM(bandwidth=1., device=DEVICE, mem_gb=DEV_MEM_GB, diag=False)
+model = LaplaceRFM(bandwidth=1., device=DEVICE, mem_gb=DEV_MEM_GB, diag=False)
 
 n = 1000 # samples
 d = 100  # dimension
