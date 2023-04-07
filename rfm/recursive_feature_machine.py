@@ -136,18 +136,30 @@ class LaplaceRFM(RecursiveFeatureMachine):
         p, c = self.weights.shape
         n, d = samples.shape
         
-        centers_term = (
-            K # (n, p)
-            @ (
-                self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
-            ).reshape(p, c*d) # (p, cd)
-        ).view(n, c, d)
-
         samples_term = (
                 K # (n, p)
                 @ self.weights # (p, c)
             ).reshape(n, c, 1)
-        samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
+        
+        if self.diag:
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d)
+
+            samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
+            
+        else:        
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d)
+
+            samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
         G = (centers_term - samples_term) / self.bandwidth
         if self.diag:
