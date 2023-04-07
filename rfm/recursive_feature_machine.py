@@ -7,23 +7,15 @@ from .kernels import laplacian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
 
-if torch.cuda.is_available():
-    DEVICE = torch.device("cuda")
-    DEV_MEM_GB = torch.cuda.get_device_properties(DEVICE).total_memory//1024**3 - 1 # GPU memory in GB, keeping aside 1GB for safety
-else:
-    DEVICE = torch.device("cpu")
-    DEV_MEM_GB = 8
-
-
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, diag=False):
+    def __init__(self, device='cpu', mem_gb=32, diag=False):
         super().__init__()
         self.M = None
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
-        self.device = DEVICE
-        self.mem_gb = DEV_MEM_GB
+        self.device = device
+        self.mem_gb = mem_gb
 
     def get_data(self, data_loader):
         X, y = [], []
