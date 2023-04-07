@@ -45,14 +45,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit_predictor_lstsq(self, centers, targets):
         return torch.linalg.solve(
             self.kernel(centers, centers) 
-            + 1e-3*torch.eye(len(centers), device=self.device), 
+            + 1e-3*torch.eye(len(centers), device=centers.device), 
             targets
         )
 
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
-        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
+        self.model = KernelModel(self.kernel, centers, n_classes)
         _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, **kwargs)
         return self.model.weights
 
