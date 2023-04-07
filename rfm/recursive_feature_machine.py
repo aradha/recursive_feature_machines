@@ -9,7 +9,7 @@ import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device='cpu', mem_gb=32, diag=False):
+    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False):
         super().__init__()
         self.M = None
         self.model = None
