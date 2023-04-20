@@ -9,11 +9,12 @@ import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False):
+    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False, centering=False):
         super().__init__()
         self.M = None
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
+        self.centering = centering # if True, update_M will center the gradients before taking an outer product
         self.device = device
         self.mem_gb = mem_gb
 
@@ -123,7 +124,8 @@ class LaplaceRFM(RecursiveFeatureMachine):
         
 
     def update_M(self, samples):
-        
+        if self.centering:
+            raise NotImplementedError("Centering is not yet supported")
         K = self.kernel(samples, self.centers)
 
         dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
