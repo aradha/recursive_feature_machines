@@ -124,8 +124,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         
 
     def update_M(self, samples):
-        if self.centering:
-            raise NotImplementedError("Centering is not yet supported")
+        
         K = self.kernel(samples, self.centers)
 
         dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
@@ -149,7 +148,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
                 @ (
                     self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
                 ).reshape(p, c*d) # (p, cd)
-            ).view(n, c, d)
+            ).view(n, c, d) # (n, c, d)
 
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
             
@@ -159,11 +158,15 @@ class LaplaceRFM(RecursiveFeatureMachine):
                 @ (
                     self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
                 ).reshape(p, c*d) # (p, cd)
-            ).view(n, c, d)
+            ).view(n, c, d) # (n, c, d)
 
             samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
-        G = (centers_term - samples_term) / self.bandwidth
+        G = (centers_term - samples_term) / self.bandwidth # (n, c, d)
+        
+        if self.centering:
+            G = G - G.mean(0) # (n, c, d)
+        
         if self.diag:
             torch.einsum('ncd, ncd -> d', G, G)/len(samples)
         else:
@@ -192,7 +195,7 @@ if __name__ == "__main__":
     y_train = fstar(X_train).double()
     y_test = fstar(X_test).double()
 
-    model = LaplaceRFM(bandwidth=1.)
+    model = LaplaceRFM(bandwidth=1., diag=False, centering=False)
     model.fit(
         (X_train, y_train), 
         (X_test, y_test), 
