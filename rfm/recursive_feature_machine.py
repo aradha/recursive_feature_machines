@@ -37,7 +37,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 self.M = torch.ones(centers.shape[-1], device=self.device)
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device)
-        if (len(centers) > 20_000) or self.fit_using_eigenpro:
+        if self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets)
