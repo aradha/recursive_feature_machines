@@ -1,7 +1,10 @@
 try:
     from eigenpro2 import KernelModel
+    EIGENPRO_AVAILABLE = True
 except ModuleNotFoundError:
     print('`eigenpro2` not installed.. using torch.linalg.solve for training kernel model')
+    EIGENPRO_AVAILABLE = False
+    
 import torch, numpy as np
 from .kernels import laplacian_M, euclidean_distances_M
 from tqdm import tqdm
@@ -38,7 +41,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 self.M = torch.ones(centers.shape[-1], device=self.device)
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device)
-        if self.fit_using_eigenpro:
+        if self.fit_using_eigenpro and EIGENPRO_AVAILABLE:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets)
