@@ -9,7 +9,7 @@ import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False, centering=False):
+    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False, centering=False, reg=1e-3):
         super().__init__()
         self.M = None
         self.model = None
@@ -17,6 +17,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
         self.device = device
         self.mem_gb = mem_gb
+        self.reg = reg # only used when fit using direct solve
 
     def get_data(self, data_loader):
         X, y = [], []
@@ -46,7 +47,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit_predictor_lstsq(self, centers, targets):
         return torch.linalg.solve(
             self.kernel(centers, centers) 
-            + 1e-3*torch.eye(len(centers), device=centers.device), 
+            + self.reg*torch.eye(len(centers), device=centers.device), 
             targets
         )
 
