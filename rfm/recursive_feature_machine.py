@@ -172,7 +172,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
             G = G - G.mean(0) # (n, c, d)
         
         if self.diag:
-            torch.einsum('ncd, ncd -> d', G, G)/len(samples)
+            self.M = torch.einsum('ncd, ncd -> d', G, G)/len(samples)
         else:
             self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
