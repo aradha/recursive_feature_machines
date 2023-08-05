@@ -176,7 +176,56 @@ class LaplaceRFM(RecursiveFeatureMachine):
         else:
             self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
+class GaussRFM(RecursiveFeatureMachine):
 
+    def __init__(self, bandwidth=1., **kwargs):
+        super().__init__(**kwargs)
+        self.bandwidth = bandwidth
+        self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
+        
+
+    def update_M(self, samples):
+        
+        K = self.kernel(samples, self.centers)
+
+        p, d = self.centers.shape
+        p, c = self.weights.shape
+        n, d = samples.shape
+        
+        samples_term = (
+                K # (n, p)
+                @ self.weights # (p, c)
+            ).reshape(n, c, 1)
+        
+        if self.diag:
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d) # (n, c, d)
+
+            samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
+            
+        else:        
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d) # (n, c, d)
+
+            samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
+
+        G = (centers_term - samples_term) / self.bandwidth**2 # (n, c, d)
+        
+        if self.centering:
+            G = G - G.mean(0) # (n, c, d)
+        
+        if self.diag:
+            self.M = torch.einsum('ncd, ncd -> d', G, G)/len(samples)
+        else:
+            self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
 if __name__ == "__main__":
     torch.set_default_dtype(torch.float64)
