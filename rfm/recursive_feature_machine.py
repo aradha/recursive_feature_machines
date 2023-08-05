@@ -2,8 +2,9 @@ try:
     from eigenpro2 import KernelModel
     EIGENPRO_AVAILABLE = True
 except ModuleNotFoundError:
-    print('`eigenpro2` is not installed.. using `torch.linalg.solve` for training kernel model which may scale poorly.')
-    print('To install `eigenpro2` visit https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch/')
+    print('`eigenpro2` is not installed.. using `torch.linalg.solve` for training kernel model')
+    print('WARNING: `torch.linalg.solve` scales poorly with size of training dataset, and may cause an `Out-of-Memory` error')
+    print('`eigenpro2` is a more scalable solver. To install visit https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch/')
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
