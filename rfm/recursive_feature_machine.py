@@ -6,7 +6,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
-from .kernels import laplacian_M, euclidean_distances_M
+from .kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
 
