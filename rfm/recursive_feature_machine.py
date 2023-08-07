@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
+from torchmetrics.classification import MultilabelAccuracy
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
@@ -95,7 +96,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if classif:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
                 print(f"Round {i}, Train Acc: {train_acc:.2f}%")
-                test_acc = self.score(X_train, y_train, metric='accuracy')
+                test_acc = self.score(X_test, y_test, metric='accuracy')
                 print(f"Round {i}, Test Acc: {test_acc:.2f}%")
 
 
@@ -119,7 +120,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def score(self, samples, targets, metric='mse'):
         preds = self.predict(samples)
         if metric=='accuracy':
-            return (1.*(targets.argmax(-1) == preds.argmax(-1))).mean()*100.
+            mla = MultilabelAccuracy(num_labels=targets.shape[-1])
+            return (1.*mla(preds,targets).item())*100.
+        
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
 
@@ -249,7 +252,7 @@ if __name__ == "__main__":
     torch.manual_seed(0)
     X_train = torch.randn(n,d)
     X_test = torch.randn(n,d)
-
+    
     y_train = fstar(X_train)
     y_test = fstar(X_test)
 
