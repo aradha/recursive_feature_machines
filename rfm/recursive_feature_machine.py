@@ -102,10 +102,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.update_M(X_train)
+            self.fit_M(X_train)
 
             if name is not None:
-                hickle.dump(M, f"saved_Ms/M_{name}_{i}.h")
+                hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
         self.fit_predictor(X_train, y_train)
         final_mse = self.score(X_test, y_test, metric='mse')
@@ -115,6 +115,29 @@ class RecursiveFeatureMachine(torch.nn.Module):
             print(f"Final Test Acc: {final_test_acc:.2f}%")
             
         return final_mse
+    
+    def fit_M(self, samples, batch_size=1000, verbose=False):
+        """Applies EGOP to update the Mahalanobis matrix M."""
+        if self.diag:
+            raise NotImplementedError("Diagonal LaplaceRFM not implemented yet.")
+        
+        n = len(samples)
+        num_batches = (n // batch_size) + 1
+        new_M = torch.zeros_like(self.M)
+
+        pbar = trange(num_batches, disable=not verbose)
+
+        for i in pbar:
+            start = i * batch_size
+            end = min((i+1) * batch_size, n)
+            batch = samples[start:end]
+            new_M += self.update_M(batch)
+        
+        self.M = new_M / n
+        del new_M
+
+        if self.centering:
+            self.M = self.M - self.M.mean(0)
 
     def score(self, samples, targets, metric='mse'):
         preds = self.predict(samples)
@@ -131,7 +154,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
     
-    def _update_M_batch(self, samples):
+    def update_M(self, samples):
         """Performs a batched update of M."""
         K = self.kernel(samples, self.centers)
 
@@ -147,8 +170,8 @@ class LaplaceRFM(RecursiveFeatureMachine):
 
         samples_term = (K @ self.weights).reshape(n, c, 1)  # (n, p)  # (p, c)
 
-        if self.diag: # TODO: complete diagonal implementation
-            centers_term = (
+        if self.diag:
+            G = (
                 K  # (n, p)
                 @ (
                     self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
@@ -178,29 +201,10 @@ class LaplaceRFM(RecursiveFeatureMachine):
         G = (G - samples_term) / self.bandwidth  # (n, c, d)
         
         # return quantity to be added to M. Division by len(samples) will be done in parent function.
-        return torch.einsum("ncd, ncD -> dD", G, G)
-
-    def update_M(self, samples, batch_size=1000, verbose=False):
         if self.diag:
-            raise NotImplementedError("Diagonal LaplaceRFM not implemented yet.")
-        
-        n = len(samples)
-        num_batches = (n // batch_size) + 1
-        new_M = torch.zeros_like(self.M)
-
-        pbar = trange(num_batches, disable=not verbose)
-
-        for i in pbar:
-            start = i * batch_size
-            end = min((i+1) * batch_size, n)
-            batch = samples[start:end]
-            new_M += self._update_M_batch(batch)
-        
-        self.M = new_M / n
-        del new_M
-
-        if self.centering:
-            self.M = self.M - self.M.mean(0)
+            return torch.einsum('ncd, ncd -> d', G, G)
+        else:
+            return torch.einsum("ncd, ncD -> dD", G, G)
 
 class GaussRFM(RecursiveFeatureMachine):
 
