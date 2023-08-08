@@ -168,7 +168,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         samples_term = (K @ self.weights).reshape(n, c, 1)  # (n, p)  # (p, c)
 
         if self.diag:
-            G = (
+            centers_term = (
                 K  # (n, p)
                 @ (
                     self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
@@ -182,7 +182,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
 
         else:
-            G = (
+            centers_term = (
                 K  # (n, p)
                 @ (
                     self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
@@ -195,7 +195,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
 
             samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
-        G = (G - samples_term) / self.bandwidth  # (n, c, d)
+        G = (centers_term - samples_term) / self.bandwidth  # (n, c, d)
         
         # return quantity to be added to M. Division by len(samples) will be done in parent function.
         if self.diag:
