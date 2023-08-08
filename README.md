@@ -59,4 +59,4 @@ model.fit(
 
 
 # Paper
-[Feature learning in neural networks and kernel machines that recursively learn features](https://arxiv.org/abs/2212.13881)
+[Mechanism of feature learning in deep fully connected networks and kernel machines that recursively learn features](https://arxiv.org/abs/2212.13881)

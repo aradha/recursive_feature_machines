@@ -2,17 +2,22 @@ try:
     from eigenpro2 import KernelModel
     EIGENPRO_AVAILABLE = True
 except ModuleNotFoundError:
-    print('`eigenpro2` not installed.. using torch.linalg.solve for training kernel model')
+    print('`eigenpro2` is not installed...') 
+    print('Using `torch.linalg.solve` for training the kernel model\n')
+    print('WARNING: `torch.linalg.solve` scales poorly with the size of training dataset,\n '
+    '         and may cause an `Out-of-Memory` error')
+    print('`eigenpro2` is a more scalable solver. To use, pass `method="eigenpro"` to `model.fit()`')
+    print('To install `eigenpro2` visit https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch/')
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
-from .kernels import laplacian_M, euclidean_distances_M
+from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm, trange
 import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=32, diag=False, centering=False, reg=1e-3):
+    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3):
         super().__init__()
         self.M = None
         self.model = None
@@ -59,7 +64,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
         self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
         _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, **kwargs)
-        return self.model.weights
+        return self.model.weight
 
 
     def predict(self, samples):
@@ -68,13 +73,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
-            train_acc=False, loader=True, classif=True):
+            train_acc=False, loader=True, classif=True, **kwargs):
         if method=='eigenpro':
-            raise NotImplementedError(
-                "EigenPro method is not yet supported. "+
-                "Please try again with `method='lstlq'`")
-            #self.fit_using_eigenpro = (method.lower()=='eigenpro')
-        self.fit_using_eigenpro = False
+        #     raise NotImplementedError(
+        #         "EigenPro method is not yet supported. "+
+        #         "Please try again with `method='lstlq'`")
+        #     #self.fit_using_eigenpro = (method.lower()=='eigenpro')
+            self.fit_using_eigenpro = True
         
         if loader:
             print("Loaders provided")
@@ -85,7 +90,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_test, y_test = test_loader
             
         for i in range(iters):
-            self.fit_predictor(X_train, y_train)
+            self.fit_predictor(X_train, y_train, **kwargs)
             
             if classif:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
@@ -197,33 +202,83 @@ class LaplaceRFM(RecursiveFeatureMachine):
         if self.centering:
             self.M = self.M - self.M.mean(0)
 
+class GaussRFM(RecursiveFeatureMachine):
+
+    def __init__(self, bandwidth=1., **kwargs):
+        super().__init__(**kwargs)
+        self.bandwidth = bandwidth
+        self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
+        
+
+    def update_M(self, samples):
+        
+        K = self.kernel(samples, self.centers)
+
+        p, d = self.centers.shape
+        p, c = self.weights.shape
+        n, d = samples.shape
+        
+        samples_term = (
+                K # (n, p)
+                @ self.weights # (p, c)
+            ).reshape(n, c, 1)
+        
+        if self.diag:
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d) # (n, c, d)
+
+            samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
+            
+        else:        
+            centers_term = (
+                K # (n, p)
+                @ (
+                    self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
+                ).reshape(p, c*d) # (p, cd)
+            ).view(n, c, d) # (n, c, d)
+
+            samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
+
+        G = (centers_term - samples_term) / self.bandwidth**2 # (n, c, d)
+        
+        if self.centering:
+            G = G - G.mean(0) # (n, c, d)
+        
+        if self.diag:
+            self.M = torch.einsum('ncd, ncd -> d', G, G)/len(samples)
+        else:
+            self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
 
 if __name__ == "__main__":
-    torch.set_default_dtype(torch.float64)
-    
+    torch.set_default_dtype(torch.float32)
+    torch.manual_seed(0)
     # define target function
     def fstar(X):
         return torch.cat([
             (X[:, 0]  > 0)[:,None],
             (X[:, 1]  < 0.1)[:,None]],
-            axis=1)
+            axis=1).type(X.type())
 
 
     # create low rank data
     n = 4000
     d = 100
-    np.random.seed(0)
-    X_train = torch.from_numpy(np.random.normal(scale=0.5, size=(n,d)))
-    X_test = torch.from_numpy(np.random.normal(scale=0.5, size=(n,d)))
+    torch.manual_seed(0)
+    X_train = torch.randn(n,d)
+    X_test = torch.randn(n,d)
 
-    y_train = fstar(X_train).double()
-    y_test = fstar(X_test).double()
+    y_train = fstar(X_train)
+    y_test = fstar(X_test)
 
     model = LaplaceRFM(bandwidth=1., diag=False, centering=False)
     model.fit(
         (X_train, y_train), 
         (X_test, y_test), 
-        loader=False,
+        loader=False, method='eigenpro', epochs=15, print_every=5,
         iters=5,
         classif=False
     ) 
