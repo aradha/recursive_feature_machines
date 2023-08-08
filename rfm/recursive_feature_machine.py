@@ -196,6 +196,8 @@ class LaplaceRFM(RecursiveFeatureMachine):
             samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
         G = (centers_term - samples_term) / self.bandwidth  # (n, c, d)
+
+        del centers_term, samples_term, K, dist
         
         # return quantity to be added to M. Division by len(samples) will be done in parent function.
         if self.diag:
