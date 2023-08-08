@@ -118,9 +118,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def fit_M(self, samples, batch_size=1000, verbose=False):
         """Applies EGOP to update the Mahalanobis matrix M."""
-        if self.diag:
-            raise NotImplementedError("Diagonal LaplaceRFM not implemented yet.")
-        
         n = len(samples)
         num_batches = (n // batch_size) + 1
         new_M = torch.zeros_like(self.M)
