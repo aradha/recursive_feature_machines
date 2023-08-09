@@ -11,7 +11,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
-from .kernels import laplacian_M, gaussian_M, euclidean_distances_M
+from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm, trange
 import hickle
 
@@ -27,29 +27,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
 
-    def get_data(self, data_loader, batches=None):
-        # X, y = [], []
-        # for idx, batch in enumerate(data_loader):
-        #     inputs, labels = batch
-        #     X.append(inputs)
-        #     y.append(labels)
-        # return torch.cat(X, dim=0), torch.cat(y, dim=0)
+    def get_data(self, data_loader):
         X, y = [], []
-        cnt = 1
         for idx, batch in enumerate(data_loader):
             inputs, labels = batch
-            inputs = inputs.to(self.device)
-            labels = labels.to(self.device)
-            # inputs = inputs.view(-1, inputs.shape[-1])
-            # labels = labels.view(-1, 1)
             X.append(inputs)
             y.append(labels)
-            if cnt >= batches:
-                break
-            cnt += 1
-        X = torch.cat(X, dim=0)
-        y = torch.cat(y, dim=0)
-        return X, y
+        return torch.cat(X, dim=0), torch.cat(y, dim=0)
 
     def update_M(self):
         raise NotImplementedError("Must implement this method in a subclass")
@@ -99,8 +83,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if loader:
             print("Loaders provided")
-            X_train, y_train = self.get_data(train_loader, batches=1)
-            X_test, y_test = self.get_data(test_loader, batches=1)
+            X_train, y_train = self.get_data(train_loader)
+            X_test, y_test = self.get_data(test_loader)
         else:
             X_train, y_train = train_loader
             X_test, y_test = test_loader
