@@ -88,6 +88,17 @@ class RecursiveFeatureMachine(torch.nn.Module):
         else:
             X_train, y_train = train_loader
             X_test, y_test = test_loader
+
+        # calculate optimal batch size for batched EGOP
+        current_memory_use = torch.cuda.memory_allocated() # in bytes
+        p = X_train.shape[0]
+        c = y_train.shape[1]
+        d = X_train.shape[1]
+        M_memory = (d if self.diag else d**2) * 8 # in bytes
+        centers_memory = (p*d) * 8 # in bytes
+        memory_available = (self.mem_gb * 1024**3) - current_memory_use - M_memory - centers_memory - 2*p*d*8
+        # maximum batch size limited by K, dist, centers_term, samples_term, and G
+        M_batch_size = int(memory_available / ((2*d+2*p+3*c*d+2)*8))
             
         for i in range(iters):
             self.fit_predictor(X_train, y_train, **kwargs)
@@ -102,12 +113,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train)
+            self.fit_M(X_train, batch_size=M_batch_size)
 
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train)
+        self.fit_predictor(X_train, y_train, **kwargs)
         final_mse = self.score(X_test, y_test, metric='mse')
         print(f"Final MSE: {final_mse:.4f}")
         if classif:
