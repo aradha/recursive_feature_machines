@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
+from torchmetrics.functional.classification import accuracy
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm, trange
 from tqdm.contrib import tenumerate
@@ -99,7 +100,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if classif:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
                 print(f"Round {i}, Train Acc: {train_acc:.2f}%")
-                test_acc = self.score(X_train, y_train, metric='accuracy')
+                test_acc = self.score(X_test, y_test, metric='accuracy')
                 print(f"Round {i}, Test Acc: {test_acc:.2f}%")
 
 
@@ -151,7 +152,15 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def score(self, samples, targets, metric='mse'):
         preds = self.predict(samples)
         if metric=='accuracy':
-            return (1.*(targets.argmax(-1) == preds.argmax(-1))).mean()*100.
+            if preds.shape[-1]==1:
+                num_classes = len(torch.unique(preds))
+                if num_classes==2:
+                    return accuracy(preds, targets, task="binary").item()
+                else:
+                    return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
+            else:
+                return accuracy(preds, targets, task="multilabel", num_labels=preds.shape[-1]).item()
+        
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
 
@@ -285,7 +294,7 @@ if __name__ == "__main__":
     torch.manual_seed(0)
     X_train = torch.randn(n,d)
     X_test = torch.randn(n,d)
-
+    
     y_train = fstar(X_train)
     y_test = fstar(X_test)
 
