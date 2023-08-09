@@ -129,7 +129,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train, batch_size=M_batch_size, verbose=True)
+            self.fit_M(X_train, batch_size=M_batch_size)
 
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
