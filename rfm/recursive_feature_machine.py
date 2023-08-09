@@ -11,7 +11,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
-from kernels import laplacian_M, gaussian_M, euclidean_distances_M
+from .kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm, trange
 import hickle
 
@@ -27,13 +27,29 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
 
-    def get_data(self, data_loader):
+    def get_data(self, data_loader, batches=None):
+        # X, y = [], []
+        # for idx, batch in enumerate(data_loader):
+        #     inputs, labels = batch
+        #     X.append(inputs)
+        #     y.append(labels)
+        # return torch.cat(X, dim=0), torch.cat(y, dim=0)
         X, y = [], []
+        cnt = 1
         for idx, batch in enumerate(data_loader):
             inputs, labels = batch
+            inputs = inputs.to(self.device)
+            labels = labels.to(self.device)
+            # inputs = inputs.view(-1, inputs.shape[-1])
+            # labels = labels.view(-1, 1)
             X.append(inputs)
             y.append(labels)
-        return torch.cat(X, dim=0), torch.cat(y, dim=0)
+            if cnt >= batches:
+                break
+            cnt += 1
+        X = torch.cat(X, dim=0)
+        y = torch.cat(y, dim=0)
+        return X, y
 
     def update_M(self):
         raise NotImplementedError("Must implement this method in a subclass")
@@ -62,7 +78,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
-        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
+        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device, verbose=False)
         _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, **kwargs)
         return self.model.weight
 
@@ -83,11 +99,22 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if loader:
             print("Loaders provided")
-            X_train, y_train = self.get_data(train_loader)
-            X_test, y_test = self.get_data(test_loader)
+            X_train, y_train = self.get_data(train_loader, batches=1)
+            X_test, y_test = self.get_data(test_loader, batches=1)
         else:
             X_train, y_train = train_loader
             X_test, y_test = test_loader
+
+        # calculate optimal batch size for batched EGOP
+        current_memory_use = torch.cuda.memory_allocated() # in bytes
+        p = X_train.shape[0]
+        c = y_train.shape[1]
+        d = X_train.shape[1]
+        M_memory = (d if self.diag else d**2) * 8 # in bytes
+        centers_memory = (p*d) * 8 # in bytes
+        memory_available = (self.mem_gb * 1024**3) - current_memory_use - M_memory - centers_memory - 2*p*d*8
+        # maximum batch size limited by K, dist, centers_term, samples_term, and G
+        M_batch_size = int(memory_available / ((2*d+2*p+3*c*d+2)*8))
             
         for i in range(iters):
             self.fit_predictor(X_train, y_train, **kwargs)
@@ -102,12 +129,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train)
+            self.fit_M(X_train, batch_size=M_batch_size, verbose=True)
 
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train)
+        self.fit_predictor(X_train, y_train, **kwargs)
         final_mse = self.score(X_test, y_test, metric='mse')
         print(f"Final MSE: {final_mse:.4f}")
         if classif:
