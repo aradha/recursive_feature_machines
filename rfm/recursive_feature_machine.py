@@ -13,6 +13,7 @@ except ModuleNotFoundError:
 import torch, numpy as np
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm, trange
+from tqdm.contrib import tenumerate
 import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
@@ -90,16 +91,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_train, y_train = train_loader
             X_test, y_test = test_loader
 
-        # calculate optimal batch size for batched EGOP
-        current_memory_use = torch.cuda.memory_allocated() # in bytes
-        p = X_train.shape[0]
-        c = y_train.shape[1]
-        d = X_train.shape[1]
-        M_memory = (d if self.diag else d**2) * 8 # in bytes
-        centers_memory = (p*d) * 8 # in bytes
-        memory_available = (self.mem_gb * 1024**3) - current_memory_use - M_memory - centers_memory - 2*p*d*8
-        # maximum batch size limited by K, dist, centers_term, samples_term, and G
-        M_batch_size = int(memory_available / ((2*d+2*p+3*c*d+2)*8))
+        
             
         for i in range(iters):
             self.fit_predictor(X_train, y_train, **kwargs)
@@ -114,7 +106,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train, batch_size=M_batch_size)
+            self.fit_M(X_train, y_train, **kwargs)
 
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
@@ -128,22 +120,30 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
         return final_mse
     
-    def fit_M(self, samples, batch_size=1000, verbose=False):
+    def fit_M(self, samples, labels, M_batch_size=None, verbose=False):
         """Applies EGOP to update the Mahalanobis matrix M."""
-        n, d = samples.shape
-        num_batches = (n // batch_size) + 1
-        new_M = torch.zeros_like(self.M) if self.M is not None else torch.zeros(d, d)
-
-        pbar = trange(num_batches, disable=not verbose)
-
-        for i in pbar:
-            start = i * batch_size
-            end = min((i+1) * batch_size, n)
-            batch = samples[start:end]
-            new_M += self.update_M(batch)
         
-        self.M = new_M / n
-        del new_M
+        n, d = samples.shape
+        M = torch.zeros_like(self.M) if self.M is not None else (
+            torch.zeros(d, dtype=samples.dtype) if self.diag else torch.zeros(d, d, dtype=samples.dtype))
+        
+        if M_batch_size is None: # calculate optimal batch size for batched EGOP
+            curr_mem_use = torch.cuda.memory_allocated() # in bytes
+            BYTES_PER_SCALAR = self.M.element_size()
+            p, d = samples.shape
+            c = labels.shape[-1]
+            M_mem = (d if self.diag else d**2)
+            centers_mem = (p * d)
+            mem_available = (self.mem_gb *1024**3) - curr_mem_use - (M_mem - centers_mem - 2*p*d) * BYTES_PER_SCALAR
+            # maximum batch size limited by K, dist, centers_term, samples_term, and G
+            M_batch_size = mem_available // ((2*d + 2*p+3*c*d + 2)*BYTES_PER_SCALAR)
+        
+        batches = torch.randperm(n).split(M_batch_size)
+        for i, bids in tenumerate(batches):
+            M += self.update_M(samples[bids])
+            
+        self.M = M / n
+        del M
 
         if self.centering:
             self.M = self.M - self.M.mean(0)
