@@ -62,7 +62,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
-        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device, verbose=False)
+        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
         _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, **kwargs)
         return self.model.weight
 
