@@ -13,7 +13,6 @@ except ModuleNotFoundError:
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
-from tqdm import tqdm, trange
 from tqdm.contrib import tenumerate
 import hickle
 
