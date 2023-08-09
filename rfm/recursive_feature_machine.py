@@ -12,7 +12,7 @@ except ModuleNotFoundError:
     
 import torch, numpy as np
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
-from tqdm import tqdm
+from tqdm import tqdm, trange
 import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
@@ -102,10 +102,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             test_mse = self.score(X_test, y_test, metric='mse')
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.update_M(X_train)
+            self.fit_M(X_train)
 
             if name is not None:
-                hickle.dump(M, f"saved_Ms/M_{name}_{i}.h")
+                hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
         self.fit_predictor(X_train, y_train)
         final_mse = self.score(X_test, y_test, metric='mse')
@@ -115,6 +115,26 @@ class RecursiveFeatureMachine(torch.nn.Module):
             print(f"Final Test Acc: {final_test_acc:.2f}%")
             
         return final_mse
+    
+    def fit_M(self, samples, batch_size=1000, verbose=False):
+        """Applies EGOP to update the Mahalanobis matrix M."""
+        n = len(samples)
+        num_batches = (n // batch_size) + 1
+        new_M = torch.zeros_like(self.M)
+
+        pbar = trange(num_batches, disable=not verbose)
+
+        for i in pbar:
+            start = i * batch_size
+            end = min((i+1) * batch_size, n)
+            batch = samples[start:end]
+            new_M += self.update_M(batch)
+        
+        self.M = new_M / n
+        del new_M
+
+        if self.centering:
+            self.M = self.M - self.M.mean(0)
 
     def score(self, samples, targets, metric='mse'):
         preds = self.predict(samples)
@@ -130,56 +150,60 @@ class LaplaceRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
-        
-
+    
     def update_M(self, samples):
-        
+        """Performs a batched update of M."""
         K = self.kernel(samples, self.centers)
 
         dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
         dist = torch.where(dist < 1e-10, torch.zeros(1, device=dist.device).float(), dist)
 
-        K = K/dist
-        K[K == float("Inf")] = 0.
+        K = K / dist
+        K[K == float("Inf")] = 0.0
 
         p, d = self.centers.shape
         p, c = self.weights.shape
         n, d = samples.shape
-        
-        samples_term = (
-                K # (n, p)
-                @ self.weights # (p, c)
-            ).reshape(n, c, 1)
-        
+
+        samples_term = (K @ self.weights).reshape(n, c, 1)  # (n, p)  # (p, c)
+
         if self.diag:
             centers_term = (
-                K # (n, p)
+                K  # (n, p)
                 @ (
                     self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
-                ).reshape(p, c*d) # (p, cd)
-            ).view(n, c, d) # (n, c, d)
+                ).reshape(
+                    p, c * d
+                )  # (p, cd)
+            ).view(
+                n, c, d
+            )  # (n, c, d)
 
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
-            
-        else:        
+
+        else:
             centers_term = (
-                K # (n, p)
+                K  # (n, p)
                 @ (
                     self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
-                ).reshape(p, c*d) # (p, cd)
-            ).view(n, c, d) # (n, c, d)
+                ).reshape(
+                    p, c * d
+                )  # (p, cd)
+            ).view(
+                n, c, d
+            )  # (n, c, d)
 
             samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
-        G = (centers_term - samples_term) / self.bandwidth # (n, c, d)
+        G = (centers_term - samples_term) / self.bandwidth  # (n, c, d)
+
+        del centers_term, samples_term, K, dist
         
-        if self.centering:
-            G = G - G.mean(0) # (n, c, d)
-        
+        # return quantity to be added to M. Division by len(samples) will be done in parent function.
         if self.diag:
-            self.M = torch.einsum('ncd, ncd -> d', G, G)/len(samples)
+            return torch.einsum('ncd, ncd -> d', G, G)
         else:
-            self.M = torch.einsum('ncd, ncD -> dD', G, G)/len(samples)
+            return torch.einsum("ncd, ncD -> dD", G, G)
 
 class GaussRFM(RecursiveFeatureMachine):
 
