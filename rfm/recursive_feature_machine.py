@@ -11,7 +11,7 @@ except ModuleNotFoundError:
     EIGENPRO_AVAILABLE = False
     
 import torch, numpy as np
-import torchmetrics.functional as FM
+from torchmetrics.functional.classification import accuracy
 from kernels import laplacian_M, gaussian_M, euclidean_distances_M
 from tqdm import tqdm
 import hickle
@@ -123,11 +123,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(preds))
                 if num_classes==2:
-                    return FM.classification.accuracy(preds, targets, task="binary").item()
+                    return accuracy(preds, targets, task="binary").item()
                 else:
-                    return FM.classification.accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
+                    return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
             else:
-                return FM.classification.accuracy(preds, targets, task="multilabel", num_labels=preds.shape[-1]).item()
+                return accuracy(preds, targets, task="multilabel", num_labels=preds.shape[-1]).item()
         
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
