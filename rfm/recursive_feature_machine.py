@@ -74,12 +74,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True, **kwargs):
-        if method=='eigenpro':
+        # if method=='eigenpro':
         #     raise NotImplementedError(
         #         "EigenPro method is not yet supported. "+
         #         "Please try again with `method='lstlq'`")
-        #     #self.fit_using_eigenpro = (method.lower()=='eigenpro')
-            self.fit_using_eigenpro = True
+        self.fit_using_eigenpro = (method.lower()=='eigenpro')
+            # self.fit_using_eigenpro = True
         
         if loader:
             print("Loaders provided")
