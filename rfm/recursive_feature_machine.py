@@ -26,6 +26,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.device = device
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
+        
 
     def get_data(self, data_loader):
         X, y = [], []
@@ -129,9 +130,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def fit_M(self, samples, batch_size=1000, verbose=False):
         """Applies EGOP to update the Mahalanobis matrix M."""
-        n = len(samples)
+        n, d = samples.shape
         num_batches = (n // batch_size) + 1
-        new_M = torch.zeros_like(self.M)
+        new_M = torch.zeros_like(self.M) if self.M is not None else torch.zeros(d, d)
 
         pbar = trange(num_batches, disable=not verbose)
 
