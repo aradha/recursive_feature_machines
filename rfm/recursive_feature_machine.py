@@ -129,14 +129,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if M_batch_size is None: # calculate optimal batch size for batched EGOP
             curr_mem_use = torch.cuda.memory_allocated() # in bytes
-            BYTES_PER_SCALAR = self.M.element_size()
+            BYTES_PER_SCALAR = 8
             p, d = samples.shape
             c = labels.shape[-1]
             M_mem = (d if self.diag else d**2)
             centers_mem = (p * d)
-            mem_available = (self.mem_gb *1024**3) - curr_mem_use - (M_mem - centers_mem - 2*p*d) * BYTES_PER_SCALAR
+            mem_available = (self.mem_gb *1024**3) - curr_mem_use - (M_mem + centers_mem + 2*p*d) * BYTES_PER_SCALAR
             # maximum batch size limited by K, dist, centers_term, samples_term, and G
-            M_batch_size = mem_available // ((2*d + 2*p+3*c*d + 2)*BYTES_PER_SCALAR)
+            M_batch_size = mem_available // ((2*d + 2*p + 3*c*d + 2)*BYTES_PER_SCALAR)
         
         batches = torch.randperm(n).split(M_batch_size)
         for i, bids in tenumerate(batches):
