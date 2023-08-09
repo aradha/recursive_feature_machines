@@ -120,7 +120,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
         return final_mse
     
-    def fit_M(self, samples, labels, M_batch_size=None, verbose=False):
+    def fit_M(self, samples, labels, M_batch_size=None, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
