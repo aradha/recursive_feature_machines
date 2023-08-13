@@ -167,7 +167,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         preds = self.predict(samples)
         if metric=='accuracy':
             if preds.shape[-1]==1:
-                num_classes = len(torch.unique(preds))
+                num_classes = len(torch.unique(targets))
                 if num_classes==2:
                     return accuracy(preds, targets, task="binary").item()
                 else:
@@ -301,7 +301,6 @@ if __name__ == "__main__":
             (X[:, 0]  > 0)[:,None],
             (X[:, 1]  < 0.1)[:,None]],
             axis=1).type(X.type())
-
 
     # create low rank data
     n = 4000
