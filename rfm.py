@@ -94,7 +94,8 @@ def rfm(train_loader, test_loader,
     n, d = X_train.shape
 
     M = np.eye(d, dtype='float32')
-    
+    mses = []
+    Ms = []
     for i in range(iters):
         K_train = laplace_kernel_M(X_train, X_train, L, torch.from_numpy(M)).numpy()
         sol = solve(K_train + reg * np.eye(len(K_train)), y_train).T
@@ -111,7 +112,9 @@ def rfm(train_loader, test_loader,
         preds = (sol @ K_test).T
 #         print("preds",preds)
 #         print("y_test",y_test)
-        print("Round " + str(i) + " MSE: ", np.mean(np.square(preds - y_test.numpy())))
+        mse_ = np.mean(np.square(preds - y_test.numpy()))
+        mses.append(mse_)
+        print("Round " + str(i) + " MSE: ", mse_)
         
         if classif:
             y_pred = torch.from_numpy(preds)
@@ -121,6 +124,7 @@ def rfm(train_loader, test_loader,
             print("Round " + str(i) + " Acc: ", count / len(labels))
 
         M  = get_grads(X_train, sol, L, torch.from_numpy(M), batch_size=batch_size).astype('float32')
+        Ms.append(M+0)
         if name is not None:
             hickle.dump(M, 'saved_Ms/M_' + name + '_' + str(i) + '.h')
 
@@ -138,7 +142,7 @@ def rfm(train_loader, test_loader,
         count = torch.sum(labels == preds).numpy()
         print(" Final Acc: ", count / len(labels))
         
-    return M, mse
+    return Ms, mses
 
 
 def get_data(loader):
