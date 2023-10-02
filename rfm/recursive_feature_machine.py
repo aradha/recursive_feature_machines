@@ -110,7 +110,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, **kwargs)
             
             if return_mse:
-                Ms.append(M+0)
+                Ms.append(self.M+0)
                 mses.append(test_mse)
 
             if name is not None:
