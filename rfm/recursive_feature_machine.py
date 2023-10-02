@@ -75,7 +75,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
-            train_acc=False, loader=True, classif=True, **kwargs):
+            train_acc=False, loader=True, classif=True, return_mse=False, **kwargs):
         # if method=='eigenpro':
         #     raise NotImplementedError(
         #         "EigenPro method is not yet supported. "+
@@ -92,7 +92,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_test, y_test = test_loader
 
         
-            
+        mses = []
+        Ms = []
         for i in range(iters):
             self.fit_predictor(X_train, y_train, **kwargs)
             
@@ -107,6 +108,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
             self.fit_M(X_train, y_train, **kwargs)
+            
+            if return_mse:
+                Ms.append(M+0)
+                mses.append(test_mse)
 
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
@@ -117,6 +122,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if classif:
             final_test_acc = self.score(X_test, y_test, metric='accuracy')
             print(f"Final Test Acc: {final_test_acc:.2f}%")
+
+        if return_mse:
+            return Ms, mses
             
         return final_mse
     
