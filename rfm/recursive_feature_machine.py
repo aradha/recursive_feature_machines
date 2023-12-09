@@ -99,9 +99,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
             if classif:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
-                print(f"Round {i}, Train Acc: {train_acc:.2f}%")
+                print(f"Round {i}, Train Acc: {100*train_acc:.2f}%")
                 test_acc = self.score(X_test, y_test, metric='accuracy')
-                print(f"Round {i}, Test Acc: {test_acc:.2f}%")
+                print(f"Round {i}, Test Acc: {100*test_acc:.2f}%")
 
 
             test_mse = self.score(X_test, y_test, metric='mse')
@@ -121,7 +121,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         print(f"Final MSE: {final_mse:.4f}")
         if classif:
             final_test_acc = self.score(X_test, y_test, metric='accuracy')
-            print(f"Final Test Acc: {final_test_acc:.2f}%")
+            print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
         if return_mse:
             return Ms, mses
