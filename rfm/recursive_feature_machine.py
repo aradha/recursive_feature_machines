@@ -179,7 +179,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 else:
                     return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
             else:
-                return accuracy(preds, targets, task="multilabel", num_labels=preds.shape[-1]).item()
+                preds_ = torch.argmax(preds,dim=-1)
+                targets_ = torch.argmax(targets,dim=-1)
+                return accuracy(preds_, targets_, task="multiclass", num_classes=preds.shape[-1]).item()
         
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
