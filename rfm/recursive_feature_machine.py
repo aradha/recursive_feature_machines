@@ -251,7 +251,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
             M = torch.einsum('ncd, ncd -> d', G, G)
         else:
             M = torch.einsum("ncd, ncD -> dD", G, G)
-        M /= M.max()
+        return M / M.max()
 
 class GaussRFM(RecursiveFeatureMachine):
 
