@@ -146,7 +146,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         M_batch_size = max_tensor_size((mem_available - 3*tensor_mem_usage(p) - tensor_mem_usage(p*c*d)) / (2*scalar_size*(1+p)))
         return M_batch_size
     
-    def fit_M(self, samples, labels, M_batch_size=None, **kwargs):
+    def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -163,7 +163,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         batches = torch.randperm(n).split(M_batch_size)
         for i, bids in tenumerate(batches):
             torch.cuda.empty_cache()
-            M.add_(self.update_M(samples[bids]))
+            M.add_(self.update_M(samples[bids], p_batch_size))
             
         self.M = M / n
         del M
@@ -194,10 +194,12 @@ class LaplaceRFM(RecursiveFeatureMachine):
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
     
-    def update_M(self, samples):
+    def update_M(self, samples, p_batch_size):
         """Performs a batched update of M."""
         K = self.kernel(samples, self.centers)
-
+        if p_batch_size is None: 
+            p_batch_size = self.centers.shape[0]
+        
         dist = euclidean_distances_M(samples, self.centers, self.M, squared=False)
         dist = torch.where(dist < 1e-10, torch.zeros(1, device=dist.device).float(), dist)
 
@@ -212,30 +214,30 @@ class LaplaceRFM(RecursiveFeatureMachine):
         samples_term = (K @ self.weights).reshape(n, c, 1)  # (n, p)  # (p, c)
 
         if self.diag:
-            centers_term = (
-                K  # (n, p)
+            temp = 0
+            for p_batch in torch.arange(p).split(p_batch_size):
+                temp += K[:, p_batch]  # (n, len(p_batch))
                 @ (
-                    self.weights.view(p, c, 1) * (self.centers * self.M).view(p, 1, d)
+                    self.weights[p_batch,:].view(len(p_batch), c, 1) * (self.centers[p_batch,:] * self.M).view(len(p_batch), 1, d)
                 ).reshape(
-                    p, c * d
-                )  # (p, cd)
-            ).view(
-                n, c, d
-            )  # (n, c, d)
+                    len(p_batch), c * d
+                )  # (len(p_batch), cd)
+            
+            centers_term = temp.view(n, c, d)
 
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
 
         else:
-            centers_term = (
-                K  # (n, p)
+            temp = 0
+            for p_batch in torch.arange(p).split(p_batch_size):
+                temp += K[:, p_batch]  # (n, len(p_batch))
                 @ (
-                    self.weights.view(p, c, 1) * (self.centers @ self.M).view(p, 1, d)
+                    self.weights[p_batch,:].view(len(p_batch), c, 1) * (self.centers[p_batch,:] @ self.M).view(len(p_batch), 1, d)
                 ).reshape(
-                    p, c * d
-                )  # (p, cd)
-            ).view(
-                n, c, d
-            )  # (n, c, d)
+                    len(p_batch), c * d
+                )  # (len(p_batch), cd)
+            
+            centers_term = temp.view(n, c, d)
 
             samples_term = samples_term * (samples @ self.M).reshape(n, 1, d)
 
