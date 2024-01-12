@@ -165,7 +165,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             torch.cuda.empty_cache()
             M.add_(self.update_M(samples[bids], p_batch_size))
             
-        self.M = M / n
+        M = M / n
+        self.M = M / M.max()
         del M
 
         
@@ -248,10 +249,9 @@ class LaplaceRFM(RecursiveFeatureMachine):
         
         # return quantity to be added to M. Division by len(samples) will be done in parent function.
         if self.diag:
-            M = torch.einsum('ncd, ncd -> d', G, G)
+            return torch.einsum('ncd, ncd -> d', G, G)
         else:
-            M = torch.einsum("ncd, ncD -> dD", G, G)
-        return M / M.max()
+            return torch.einsum("ncd, ncD -> dD", G, G)
 
 class GaussRFM(RecursiveFeatureMachine):
 
