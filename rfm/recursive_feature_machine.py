@@ -216,8 +216,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         if self.diag:
             temp = 0
             for p_batch in torch.arange(p).split(p_batch_size):
-                temp += K[:, p_batch]  # (n, len(p_batch))
-                @ (
+                temp += K[:, p_batch] @ ( # (n, len(p_batch))
                     self.weights[p_batch,:].view(len(p_batch), c, 1) * (self.centers[p_batch,:] * self.M).view(len(p_batch), 1, d)
                 ).reshape(
                     len(p_batch), c * d
@@ -230,8 +229,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         else:
             temp = 0
             for p_batch in torch.arange(p).split(p_batch_size):
-                temp += K[:, p_batch]  # (n, len(p_batch))
-                @ (
+                temp += K[:, p_batch] @ ( # (n, len(p_batch))
                     self.weights[p_batch,:].view(len(p_batch), c, 1) * (self.centers[p_batch,:] @ self.M).view(len(p_batch), 1, d)
                 ).reshape(
                     len(p_batch), c * d
@@ -250,9 +248,10 @@ class LaplaceRFM(RecursiveFeatureMachine):
         
         # return quantity to be added to M. Division by len(samples) will be done in parent function.
         if self.diag:
-            return torch.einsum('ncd, ncd -> d', G, G)
+            M = torch.einsum('ncd, ncd -> d', G, G)
         else:
-            return torch.einsum("ncd, ncD -> dD", G, G)
+            M = torch.einsum("ncd, ncD -> dD", G, G)
+        M /= M.max()
 
 class GaussRFM(RecursiveFeatureMachine):
 
