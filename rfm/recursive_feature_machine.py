@@ -261,7 +261,7 @@ class GaussRFM(RecursiveFeatureMachine):
         self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         
 
-    def update_M(self, samples):
+    def update_M(self, samples, p_batch_size=None):
         
         K = self.kernel(samples, self.centers)
 
