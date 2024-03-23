@@ -55,11 +55,17 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 
     def fit_predictor_lstsq(self, centers, targets):
-        return torch.linalg.solve(
-            self.kernel(centers, centers) 
-            + self.reg*torch.eye(len(centers), device=centers.device), 
-            targets
-        )
+        if self.reg>0:
+            return torch.linalg.solve(
+                self.kernel(centers, centers) 
+                + self.reg*torch.eye(len(centers), device=centers.device), 
+                targets
+            )
+        else:
+            return torch.linalg.solve(
+                self.kernel(centers, centers), 
+                targets
+            )
 
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
