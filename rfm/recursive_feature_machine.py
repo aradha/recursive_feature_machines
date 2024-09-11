@@ -128,10 +128,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.fit_predictor(X_train, y_train, **kwargs)
         final_mse = self.score(X_test, y_test, metric='mse')
-        print(f"Final MSE: {final_mse:.4f}")
+        
+        if verbose:
+            print(f"Final MSE: {final_mse:.4f}")
         if classif:
             final_test_acc = self.score(X_test, y_test, metric='accuracy')
-            print(f"Final Test Acc: {100*final_test_acc:.2f}%")
+            if verbose:
+                print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
         if return_mse:
             return Ms, mses
