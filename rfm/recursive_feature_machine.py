@@ -81,7 +81,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
-            train_acc=False, loader=True, classif=True, return_mse=False, **kwargs):
+            train_acc=False, loader=True, classif=True, 
+            return_mse=False, verbose=True, **kwargs):
+                
         # if method=='eigenpro':
         #     raise NotImplementedError(
         #         "EigenPro method is not yet supported. "+
@@ -103,7 +105,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         for i in range(iters):
             self.fit_predictor(X_train, y_train, **kwargs)
             
-            if classif:
+            if classif and verbose:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
                 print(f"Round {i}, Train Acc: {100*train_acc:.2f}%")
                 test_acc = self.score(X_test, y_test, metric='accuracy')
@@ -111,9 +113,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 
             test_mse = self.score(X_test, y_test, metric='mse')
-            print(f"Round {i}, Test MSE: {test_mse:.4f}")
+
+            if verbose:
+                print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train, y_train, **kwargs)
+            self.fit_M(X_train, y_train, verbose=verbose, **kwargs)
             
             if return_mse:
                 Ms.append(self.M+0)
@@ -152,7 +156,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         M_batch_size = max_tensor_size((mem_available - 3*tensor_mem_usage(p) - tensor_mem_usage(p*c*d)) / (2*scalar_size*(1+p)))
         return M_batch_size
     
-    def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, **kwargs):
+    def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, verbose=True, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -167,9 +171,15 @@ class RecursiveFeatureMachine(torch.nn.Module):
             print(f"Using batch size of {M_batch_size}")
         
         batches = torch.randperm(n).split(M_batch_size)
-        for i, bids in tenumerate(batches):
-            torch.cuda.empty_cache()
-            M.add_(self.update_M(samples[bids], p_batch_size))
+
+        if verbose:
+            for i, bids in tenumerate(batches):
+                torch.cuda.empty_cache()
+                M.add_(self.update_M(samples[bids], p_batch_size))
+        else:
+            for bids in batches:
+                torch.cuda.empty_cache()
+                M.add_(self.update_M(samples[bids], p_batch_size))
             
         M = M / n
         self.M = M / M.max()
