@@ -168,7 +168,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
             p, d = samples.shape
             c = labels.shape[-1]
             M_batch_size = self._compute_optimal_M_batch(p, c, d, scalar_size=BYTES_PER_SCALAR)
-            print(f"Using batch size of {M_batch_size}")
+
+            if verbose:
+                print(f"Using batch size of {M_batch_size}")
         
         batches = torch.randperm(n).split(M_batch_size)
 
