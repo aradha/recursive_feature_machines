@@ -1,14 +1,4 @@
-try:
-    from eigenpro2 import KernelModel
-    EIGENPRO_AVAILABLE = True
-except ModuleNotFoundError:
-    print('`eigenpro2` is not installed...') 
-    print('Using `torch.linalg.solve` for training the kernel model\n')
-    print('WARNING: `torch.linalg.solve` scales poorly with the size of training dataset,\n '
-    '         and may cause an `Out-of-Memory` error')
-    print('`eigenpro2` is a more scalable solver. To use, pass `method="eigenpro"` to `model.fit()`')
-    print('To install `eigenpro2` visit https://github.com/EigenPro/EigenPro-pytorch/tree/pytorch/')
-    EIGENPRO_AVAILABLE = False
+from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
@@ -48,13 +38,15 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 self.M = torch.ones(centers.shape[-1], device=self.device)
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device)
-        if self.fit_using_eigenpro and EIGENPRO_AVAILABLE:
+        if self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets)
 
 
     def fit_predictor_lstsq(self, centers, targets):
+        centers = centers.to(self.device)
+        targets = targets.to(self.device)
         if self.reg>0:
             return torch.linalg.solve(
                 self.kernel(centers, centers) 
@@ -76,20 +68,16 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 
     def predict(self, samples):
-        return self.kernel(samples, self.centers) @ self.weights
+        out = self.kernel(samples.to(self.device), self.centers.to(self.device)) @ self.weights.to(self.device)
+        return out.to(samples.device)
 
 
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True, 
-            return_mse=False, verbose=True, **kwargs):
+            return_mse=False, verbose=True, M_batch_size=None, **kwargs):
                 
-        # if method=='eigenpro':
-        #     raise NotImplementedError(
-        #         "EigenPro method is not yet supported. "+
-        #         "Please try again with `method='lstlq'`")
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
-            # self.fit_using_eigenpro = True
         
         if loader:
             print("Loaders provided")
@@ -103,7 +91,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         mses = []
         Ms = []
         for i in range(iters):
-            self.fit_predictor(X_train, y_train, **kwargs)
+            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, **kwargs)
             
             if classif and verbose:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
@@ -117,7 +105,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
             
-            self.fit_M(X_train, y_train, verbose=verbose, **kwargs)
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
             
             if return_mse:
                 Ms.append(self.M+0)
@@ -126,7 +114,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train, **kwargs)
+        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, **kwargs)
         final_mse = self.score(X_test, y_test, metric='mse')
         
         if verbose:
@@ -157,9 +145,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         centers_mem = tensor_mem_usage(p * d)
         mem_available = (self.mem_gb *1024**3) - curr_mem_use - (M_mem + centers_mem) * scalar_size
         M_batch_size = max_tensor_size((mem_available - 3*tensor_mem_usage(p) - tensor_mem_usage(p*c*d)) / (2*scalar_size*(1+p)))
+
         return M_batch_size
     
-    def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, verbose=True, **kwargs):
+    def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
+              verbose=True, total_points_to_sample=50000, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -177,6 +167,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         batches = torch.randperm(n).split(M_batch_size)
 
+        num_batches = 1 + total_points_to_sample//M_batch_size
+        batches = batches[:num_batches]
+        print(f'Sampling AGOP on {num_batches*M_batch_size} total points')
+
         if verbose:
             for i, bids in tenumerate(batches):
                 torch.cuda.empty_cache()
@@ -186,13 +180,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
             
-        M = M / n
         self.M = M / M.max()
         del M
 
         
     def score(self, samples, targets, metric='mse'):
-        preds = self.predict(samples)
+        preds = self.predict(samples.to(self.device)).to(targets.device)
         if metric=='accuracy':
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(targets))
@@ -217,6 +210,8 @@ class LaplaceRFM(RecursiveFeatureMachine):
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
     
     def update_M(self, samples, p_batch_size):
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
         """Performs a batched update of M."""
         K = self.kernel(samples, self.centers)
         if p_batch_size is None: 
