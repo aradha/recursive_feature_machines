@@ -169,7 +169,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         num_batches = 1 + total_points_to_sample//M_batch_size
         batches = batches[:num_batches]
-        print(f'Sampling AGOP on {num_batches*M_batch_size} total points')
+        if verbose:
+            print(f'Sampling AGOP on {num_batches*M_batch_size} total points')
 
         if verbose:
             for i, bids in tenumerate(batches):
