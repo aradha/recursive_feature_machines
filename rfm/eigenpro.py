@@ -227,7 +227,7 @@ class KernelModel(nn.Module):
                 # print("X_train_eval", X_train_eval.shape,"y_train_eval",y_train_eval.shape)
                 tr_score = self.evaluate(X_train_eval, y_train_eval, bs)
                 tv_score = self.evaluate(X_val, y_val, bs)
-                print(f'({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}')
+                print(f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}")
                 res[epoch] = (tr_score, tv_score, train_sec)
 
             initial_epoch = epoch
