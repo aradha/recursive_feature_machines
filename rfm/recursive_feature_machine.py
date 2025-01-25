@@ -53,7 +53,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.reg > 0:
             kernel_matrix += self.reg * torch.eye(len(centers), device=self.device)
 
-        if class_weight == 'balanced':
+        if class_weight == 'inverse':
             class_weights = {
                 0: len(targets) / (2 * (targets == 0).sum()),
                 1: len(targets) / (2 * (targets == 1).sum())
@@ -62,8 +62,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
             sample_weights = targets.clone()
             sample_weights[targets==0] = class_weights[0]
             sample_weights[targets==1] = class_weights[1]
+            sample_weights = sample_weights.to(device=self.device, dtype=kernel_matrix.dtype)
             
-            W = torch.diag(sample_weights, device=self.device, dtype=kernel_matrix.dtype)
+            W = torch.diag(sample_weights)
             kernel_matrix = kernel_matrix@W
             targets = W@targets
 
