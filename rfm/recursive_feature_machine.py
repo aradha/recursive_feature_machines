@@ -31,7 +31,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         raise NotImplementedError("Must implement this method in a subclass")
 
 
-    def fit_predictor(self, centers, targets, **kwargs):
+    def fit_predictor(self, centers, targets, class_weight=None, **kwargs):
         self.centers = centers
         if self.M is None:
             if self.diag:
@@ -41,23 +41,36 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
         else:
-            self.weights = self.fit_predictor_lstsq(centers, targets)
+            self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight)
 
 
-    def fit_predictor_lstsq(self, centers, targets):
+    def fit_predictor_lstsq(self, centers, targets, class_weight=None):
         centers = centers.to(self.device)
         targets = targets.to(self.device)
-        if self.reg>0:
-            return torch.linalg.solve(
-                self.kernel(centers, centers) 
-                + self.reg*torch.eye(len(centers), device=centers.device), 
-                targets
-            )
-        else:
-            return torch.linalg.solve(
-                self.kernel(centers, centers), 
-                targets
-            )
+
+        kernel_matrix = self.kernel(centers, centers)
+
+        if self.reg > 0:
+            kernel_matrix += self.reg * torch.eye(len(centers), device=self.device)
+
+        if class_weight == 'balanced':
+            class_weights = {
+                0: len(targets) / (2 * (targets == 0).sum()),
+                1: len(targets) / (2 * (targets == 1).sum())
+            }
+
+            sample_weights = targets.clone()
+            sample_weights[targets==0] = class_weights[0]
+            sample_weights[targets==1] = class_weights[1]
+            
+            W = torch.diag(sample_weights, device=self.device, dtype=kernel_matrix.dtype)
+            kernel_matrix = kernel_matrix@W
+            targets = W@targets
+
+        return torch.linalg.solve(
+            kernel_matrix, 
+            targets
+        )
 
 
     def fit_predictor_eigenpro(self, centers, targets, **kwargs):
@@ -75,9 +88,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit(self, train_loader, test_loader,
             iters=3, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True, 
-            return_mse=False, verbose=True, M_batch_size=None, **kwargs):
+            return_mse=False, verbose=True, M_batch_size=None, 
+            class_weight=None, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
+
+        if class_weight is not None and self.fit_using_eigenpro:
+            raise ValueError("Class weights are not supported for EigenPro")
         
         if loader:
             print("Loaders provided")
@@ -91,7 +108,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         mses = []
         Ms = []
         for i in range(iters):
-            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, **kwargs)
+            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
             
             if classif and verbose:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
@@ -114,7 +131,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, **kwargs)
+        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
         final_mse = self.score(X_test, y_test, metric='mse')
         
         if verbose:
