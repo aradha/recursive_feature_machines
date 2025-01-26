@@ -59,7 +59,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 1: len(flat_targets) / (2 * (flat_targets == 1).sum())
             }
 
-            sample_weights = torch.ones_like(flat_targets, dtype=kernel_matrix.dtype)
+            sample_weights = torch.ones_like(targets, dtype=kernel_matrix.dtype).flatten()
             sample_weights[flat_targets==0] = class_weights[0]
             sample_weights[flat_targets==1] = class_weights[1]
             sample_weights = sample_weights.to(device=self.device, dtype=kernel_matrix.dtype)
