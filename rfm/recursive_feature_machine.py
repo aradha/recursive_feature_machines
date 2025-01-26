@@ -48,10 +48,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         centers = centers.to(self.device)
         targets = targets.to(self.device)
 
-        kernel_matrix = self.kernel(centers, centers)
-
-        if self.reg > 0:
-            kernel_matrix += self.reg * torch.eye(len(centers), device=self.device)
+        kernel_matrix = self.kernel(centers, centers)    
 
         if class_weight == 'inverse':
             class_weights = {
@@ -65,9 +62,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
             sample_weights = sample_weights.to(device=self.device, dtype=kernel_matrix.dtype)
             
             W = torch.diag(sample_weights)
-            kernel_matrix = kernel_matrix@W
+            kernel_matrix = W@kernel_matrix
             targets = W@targets
 
+        if self.reg > 0:
+            kernel_matrix += self.reg * torch.eye(len(centers), device=self.device)
+            
         return torch.linalg.solve(
             kernel_matrix, 
             targets
