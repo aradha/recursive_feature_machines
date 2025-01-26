@@ -97,7 +97,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if class_weight is not None and self.fit_using_eigenpro:
             raise ValueError("Class weights are not supported for EigenPro")
 
-        if class_weight is not None:
+        if class_weight == 'inverse':
             print("Weighting samples by inverse class frequency")
         
         if loader:
