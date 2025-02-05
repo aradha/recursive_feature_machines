@@ -8,7 +8,7 @@ import numpy as np
 
 from .svd import nystrom_kernel_svd
 
-def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
+def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1, verbose=True):
     """Prepare gradient map for EigenPro and calculate
     scale factor for learning ratesuch that the update rule,
         p <- p - eta * g
@@ -23,6 +23,7 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
         alpha:  	exponential factor (<= 1) for eigenvalue rescaling due to approximation.
         min_q:  	minimum value of q when q (if None) is calculated automatically.
         seed:   	seed for random number generation.
+        verbose:    whether to print outputs.
 
     Returns:
         eigenpro_fn:	tensor function.
@@ -51,7 +52,8 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
         top_q = torch.sum(torch.pow(1 / eigvals, alpha) < max_bs) - 1
         top_q = max(top_q, min_q)
 
-    print("top_q", top_q, "svd_q", svd_q)
+    if verbose:
+        print("top_q", top_q, "svd_q", svd_q)
     eigvals, tail_eigval = eigvals[:top_q - 1], eigvals[top_q - 1]
     eigvecs = eigvecs[:, :top_q - 1]
 
@@ -70,8 +72,9 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
                                                   kmat),
                                          eigvecs_t)))
 
-    print("SVD time: %.2f, top_q: %d, top_eigval: %.2f, new top_eigval: %.2e" %
-          (time.time() - start, top_q, eigvals[0], eigvals[0] / scale))
+    if verbose:
+        print("SVD time: %.2f, top_q: %d, top_eigval: %.2f, new top_eigval: %.2e" %
+              (time.time() - start, top_q, eigvals[0], eigvals[0] / scale))
 
     #beta = kmat.diag().max()
     knorms = 1 - torch.sum(eigvecs ** 2, dim=1) * n_sample
@@ -165,7 +168,7 @@ class KernelModel(nn.Module):
 
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
-            n_train_eval=5000, run_epoch_eval=True, scale=1, seed=1):
+            n_train_eval=5000, run_epoch_eval=True, scale=1, seed=1, verbose=True):
 
         n_samples, n_labels = y_train.shape
         if n_subsamples is None:
@@ -186,7 +189,7 @@ class KernelModel(nn.Module):
         sample_ids = self.tensor(sample_ids)
         samples = self.centers[sample_ids]
         eigenpro_f, gap, top_eigval, beta = asm_eigenpro_fn(
-            samples, self.kernel_fn, top_q, bs_gpu, alpha=.95, seed=seed)
+            samples, self.kernel_fn, top_q, bs_gpu, alpha=.95, seed=seed, verbose=verbose)
         new_top_eigval = top_eigval / gap
 
         if eta is None:
@@ -195,8 +198,9 @@ class KernelModel(nn.Module):
         else:
             bs, _ = self._compute_opt_params(bs, bs_gpu, beta, new_top_eigval)
 
-        print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
-              (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
+        if verbose:
+            print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
+                  (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
         eta = self.tensor(scale * eta / bs, dtype=torch.float)
 
         # Subsample training data for fast estimation of training loss.
@@ -227,7 +231,8 @@ class KernelModel(nn.Module):
                 # print("X_train_eval", X_train_eval.shape,"y_train_eval",y_train_eval.shape)
                 tr_score = self.evaluate(X_train_eval, y_train_eval, bs)
                 tv_score = self.evaluate(X_val, y_val, bs)
-                print(f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}")
+                if verbose:
+                    print(f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}")
                 res[epoch] = (tr_score, tv_score, train_sec)
 
             initial_epoch = epoch
