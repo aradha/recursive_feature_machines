@@ -1,4 +1,4 @@
-ofrom .eigenpro import KernelModel
+from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
