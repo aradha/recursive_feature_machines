@@ -158,14 +158,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
-        best_params = {
-            'alphas': best_alphas, 
-            'M': best_M
-        }
+        self.M = best_M.to(self.device)
+        self.weights = best_alphas.to(self.device)
+
         if return_mse:
-            return Ms, mses, best_params
+            return Ms, mses
             
-        return final_mse, best_params
+        return final_mse
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
