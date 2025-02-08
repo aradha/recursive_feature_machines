@@ -112,8 +112,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_test, y_test = test_loader
 
         
-        mses = []
-        Ms = []
+        mses, Ms = [], []
+        best_alphas, best_M = None, None
+        best_metric = float('inf') if not classif else 0 
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
             
@@ -128,6 +129,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
             if verbose:
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
+
+            # if classification and accuracy higher, or if regression and mse lower
+            if (classif and test_acc > best_metric) or (test_mse < best_metric):
+                best_metric = test_acc
+                best_alphas = self.weights.cpu().clone()
+                best_M = self.M.cpu().clone()
             
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
             
@@ -148,10 +155,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
+        best_model = {
+            'alphas': best_alphas, 
+            'M': best_M
+        }
         if return_mse:
-            return Ms, mses
+            return Ms, mses, best_model
             
-        return final_mse
+        return final_mse, best_model
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
