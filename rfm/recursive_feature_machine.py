@@ -8,7 +8,7 @@ import hickle
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3):
+    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5):
         super().__init__()
         self.M = None
         self.model = None
@@ -17,6 +17,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.device = device
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
+        self.iters = iters
         
 
     def get_data(self, data_loader):
@@ -90,12 +91,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 
     def fit(self, train_loader, test_loader,
-            iters=3, name=None, reg=1e-3, method='lstsq', 
+            iters=None, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True, 
             return_mse=False, verbose=True, M_batch_size=None, 
             class_weight=None, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
+        if iters is None:
+            iters = self.iters
 
         if class_weight is not None and self.fit_using_eigenpro:
             raise ValueError("Class weights are not supported for EigenPro")
@@ -155,14 +158,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
-        best_model = {
+        best_params = {
             'alphas': best_alphas, 
             'M': best_M
         }
         if return_mse:
-            return Ms, mses, best_model
+            return Ms, mses, best_params
             
-        return final_mse, best_model
+        return final_mse, best_params
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
