@@ -121,12 +121,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
             
-            if classif and verbose:
+            if classif:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
-                print(f"Round {i}, Train Acc: {100*train_acc:.2f}%")
                 test_acc = self.score(X_test, y_test, metric='accuracy')
-                print(f"Round {i}, Test Acc: {100*test_acc:.2f}%")
-
+                if verbose:
+                    print(f"Round {i}, Train Acc: {100*train_acc:.2f}%, Test Acc: {100*test_acc:.2f}%")
 
             test_mse = self.score(X_test, y_test, metric='mse')
 
