@@ -133,8 +133,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
 
             # if classification and accuracy higher, or if regression and mse lower
-            if (classif and test_acc > best_metric) or (test_mse < best_metric):
+            if classif and test_acc > best_metric:
                 best_metric = test_acc
+                best_alphas = self.weights.cpu().clone()
+                best_M = self.M.cpu().clone()
+            elif test_mse < best_metric:
+                best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
             
