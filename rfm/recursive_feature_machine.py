@@ -326,6 +326,7 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
         self.sqrtM = None
         self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
         self.kernel_type = 'laplacian_gen'
+        self.exponent = exponent
 
     def update_M(self, samples, p_batch_size):
 
@@ -335,7 +336,7 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
 
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
-        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent)
+        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent, self.weights)
         return agop
 
 

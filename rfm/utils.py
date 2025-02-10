@@ -7,6 +7,6 @@ def float_x(data):
     return np.float32(data)
 
 def matrix_sqrt(M):
-    U, S = torch.linalg.eigh(M)
+    S, U = torch.linalg.eigh(M)
     S[S<0] = 0.
     return U @ torch.diag(S**0.5) @ U.T
