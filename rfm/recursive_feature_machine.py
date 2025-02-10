@@ -2,9 +2,10 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .kernels import laplacian_M, gaussian_M, euclidean_distances_M
+from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop
 from tqdm.contrib import tenumerate
 import hickle
+from .utils import matrix_sqrt
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
@@ -18,6 +19,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
         self.iters = iters
+        self.kernel_type = None
         
 
     def get_data(self, data_loader):
@@ -97,6 +99,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             class_weight=None, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
+        use_sqrtM = (self.kernel_type=='laplacian_gen')
         if iters is None:
             iters = self.iters
 
@@ -143,6 +146,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_M = self.M.cpu().clone()
             
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
+
+            if use_sqrtM:
+                self.sqrtM = matrix_sqrt(self.M)
             
             if return_mse:
                 Ms.append(self.M+0)
@@ -309,6 +315,29 @@ class LaplaceRFM(RecursiveFeatureMachine):
             return torch.einsum('ncd, ncd -> d', G, G)
         else:
             return torch.einsum("ncd, ncD -> dD", G, G)
+        
+
+class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
+
+    def __init__(self, bandwidth=1., exponent=1., **kwargs):
+        super().__init__(**kwargs)
+        self.bandwidth = bandwidth
+        self.M = None
+        self.sqrtM = None
+        self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
+        self.kernel_type = 'laplacian_gen'
+
+    def update_M(self, samples, p_batch_size):
+
+        if self.M is None:
+            self.M = torch.eye(samples.shape[-1], device=samples.device)
+            self.sqrtM = torch.eye(samples.shape[-1], device=samples.device)
+
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
+        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent)
+        return agop
+
 
 class GaussRFM(RecursiveFeatureMachine):
 
@@ -316,7 +345,7 @@ class GaussRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
-        
+        self.kernel_type = 'gaussian'
 
     def update_M(self, samples, p_batch_size=None):
         
