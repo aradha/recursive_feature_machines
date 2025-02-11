@@ -121,7 +121,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         
         mses, Ms = [], []
-        best_alphas, best_M = None, None
+        best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classif else 0 
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
@@ -146,12 +146,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
             
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
 
-            if use_sqrtM:
-                self.sqrtM = matrix_sqrt(self.M)
-            
             if return_mse:
                 Ms.append(self.M+0)
                 mses.append(test_mse)
@@ -171,6 +170,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.M = best_M.to(self.device)
         self.weights = best_alphas.to(self.device)
+        if use_sqrtM:
+            self.sqrtM = best_sqrtM.to(self.device)
 
         if return_mse:
             return Ms, mses
