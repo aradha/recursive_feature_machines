@@ -268,8 +268,8 @@ def get_laplacian_gen_grad(
     v: float, 
     L: float,
     alphas: torch.Tensor,
+    batch_size: int,
     eps: float = 1e-8,
-    batch_size: int = 16
 ) -> torch.Tensor:
     """
     Computes dk/dx for the kernel k(Mx, z) = ∏ exp(-|(Mx)_i - z_i|^v)
@@ -343,9 +343,10 @@ def get_laplace_gen_agop(
     L: float,
     v: float, 
     alphas: torch.Tensor,
+    batch_size: int,
 ) -> torch.Tensor:
 
-    grads = get_laplacian_gen_grad(x, z, sqrtM, v, L, alphas)
+    grads = get_laplacian_gen_grad(x, z, sqrtM, v, L, alphas, batch_size)
     grads = grads.reshape(-1, grads.shape[-1])
     agop = grads.T@grads
     return agop
