@@ -330,9 +330,9 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
         self.exponent = exponent
         
 
-    def update_M(self, samples):
+    def update_M(self, samples, p_batch_size):
 
-        p_batch_size = self.p_batch_size
+        samples_batch_size = self.p_batch_size
         
         if self.M is None:
             self.M = torch.eye(samples.shape[-1], device=samples.device)
@@ -340,7 +340,7 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
 
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
-        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent, self.weights, p_batch_size)
+        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent, self.weights, samples_batch_size)
         return agop
 
 
