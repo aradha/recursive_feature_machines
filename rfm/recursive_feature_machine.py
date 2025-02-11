@@ -101,7 +101,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             class_weight=None, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
-        use_sqrtM = (self.kernel_type=='laplacian_gen')
+        use_sqrtM = self.kernel_type in ['laplacian_gen']
         if iters is None:
             iters = self.iters
 
@@ -142,6 +142,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
             elif test_mse < best_metric:
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
@@ -149,7 +151,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 if use_sqrtM:
                     best_sqrtM = matrix_sqrt(self.M).cpu().clone()
             
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, **kwargs)
 
             if return_mse:
                 Ms.append(self.M+0)
@@ -198,7 +200,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return M_batch_size
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
-              verbose=True, total_points_to_sample=50000, **kwargs):
+              verbose=True, total_points_to_sample=50000, use_sqrtM=False, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -231,6 +233,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 M.add_(self.update_M(samples[bids], p_batch_size))
             
         self.M = M / M.max()
+        if use_sqrtM:
+            self.sqrtM = matrix_sqrt(self.M)
         del M
 
         
