@@ -20,7 +20,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.reg = reg # only used when fit using direct solve
         self.iters = iters
         self.kernel_type = None
-        self.p_batch_size = None
+        self.p_batch_size = p_batch_size
         
 
     def get_data(self, data_loader):
