@@ -12,6 +12,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None):
         super().__init__()
         self.M = None
+        self.sqrtM = None
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
@@ -323,15 +324,12 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
     def __init__(self, bandwidth=1., exponent=1., **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
-        self.M = None
-        self.sqrtM = None
         self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
         self.kernel_type = 'laplacian_gen'
         self.exponent = exponent
         
 
     def update_M(self, samples, p_batch_size):
-
         samples_batch_size = self.p_batch_size
         
         if self.M is None:
