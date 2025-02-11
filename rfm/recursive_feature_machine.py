@@ -9,7 +9,7 @@ from .utils import matrix_sqrt
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5):
+    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None):
         super().__init__()
         self.M = None
         self.model = None
@@ -20,6 +20,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.reg = reg # only used when fit using direct solve
         self.iters = iters
         self.kernel_type = None
+        self.p_batch_size = None
         
 
     def get_data(self, data_loader):
@@ -329,8 +330,10 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
         self.exponent = exponent
         
 
-    def update_M(self, samples, p_batch_size):
+    def update_M(self, samples):
 
+        p_batch_size = self.p_batch_size
+        
         if self.M is None:
             self.M = torch.eye(samples.shape[-1], device=samples.device)
             self.sqrtM = torch.eye(samples.shape[-1], device=samples.device)
