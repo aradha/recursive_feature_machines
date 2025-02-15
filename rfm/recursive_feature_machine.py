@@ -98,7 +98,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             iters=None, name=None, reg=1e-3, method='lstsq', 
             train_acc=False, loader=True, classif=True, 
             return_mse=False, verbose=True, M_batch_size=None, 
-            class_weight=None, **kwargs):
+            class_weight=None, return_best_params=False, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         use_sqrtM = self.kernel_type in ['laplacian_gen']
@@ -170,10 +170,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
-        self.M = best_M.to(self.device)
-        self.weights = best_alphas.to(self.device)
-        if use_sqrtM:
-            self.sqrtM = best_sqrtM.to(self.device)
+        if return_best_params:
+            self.M = best_M.to(self.device)
+            self.weights = best_alphas.to(self.device)
+            if use_sqrtM:
+                self.sqrtM = best_sqrtM.to(self.device)
 
         if return_mse:
             return Ms, mses
