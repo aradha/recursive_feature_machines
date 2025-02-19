@@ -160,11 +160,11 @@ class KernelModel(nn.Module):
         if 'multiclass-acc' in metrics:
             y_class = torch.argmax(y_eval, dim=-1)
             p_class = torch.argmax(p_eval, dim=-1)
-            eval_metrics['multiclass-acc'] = torch.mean(y_class == p_class).item()
+            eval_metrics['multiclass-acc'] = torch.sum(y_class == p_class).item() / n_sample
         if 'binary-acc' in metrics:
             y_class = torch.where(y_eval > 0, 1, 0)
             p_class = torch.where(p_eval > 0, 1, 0)
-            eval_metrics['binary-acc'] = torch.mean(y_class == p_class).item()
+            eval_metrics['binary-acc'] = torch.sum(y_class == p_class).item() / n_sample
         if 'f1' in metrics:
             y_class = torch.where(y_eval > 0, 1, 0)
             p_class = torch.where(p_eval > 0, 1, 0)
