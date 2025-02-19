@@ -244,6 +244,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(targets))
                 if num_classes==2:
+                    preds = torch.where(preds > 0.5, 1, 0).reshape(targets.shape)
                     return accuracy(preds, targets, task="binary").item()
                 else:
                     return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
