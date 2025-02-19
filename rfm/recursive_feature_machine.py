@@ -36,7 +36,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         raise NotImplementedError("Must implement this method in a subclass")
 
 
-    def fit_predictor(self, centers, targets, class_weight=None, **kwargs):
+    def fit_predictor(self, centers, targets, classification=False, class_weight=None, **kwargs):
         self.centers = centers
         if self.M is None:
             if self.diag:
@@ -44,7 +44,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device)
         if self.fit_using_eigenpro:
-            self.weights = self.fit_predictor_eigenpro(centers, targets, **kwargs)
+            self.weights = self.fit_predictor_eigenpro(centers, targets, classification=classification, **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight)
 
@@ -124,7 +124,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
         for i in range(iters):
-            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
+            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, classification=classification, class_weight=class_weight, **kwargs)
             
             if classification:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
