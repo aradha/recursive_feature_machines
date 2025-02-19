@@ -96,7 +96,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit(self, train_loader, test_loader,
             iters=None, name=None, reg=1e-3, method='lstsq', 
-            train_acc=False, loader=True, classif=True, 
+            train_acc=False, loader=True, classification=True, 
             return_mse=False, verbose=True, M_batch_size=None, 
             class_weight=None, return_best_params=False, **kwargs):
                 
@@ -122,11 +122,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         mses, Ms = [], []
         best_alphas, best_M, best_sqrtM = None, None, None
-        best_metric = float('inf') if not classif else 0 
+        best_metric = float('inf') if not classification else 0 
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, **kwargs)
             
-            if classif:
+            if classification:
                 train_acc = self.score(X_train, y_train, metric='accuracy')
                 test_acc = self.score(X_test, y_test, metric='accuracy')
                 if verbose:
@@ -138,7 +138,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
 
             # if classification and accuracy higher, or if regression and mse lower
-            if classif and test_acc > best_metric:
+            if classification and test_acc > best_metric:
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
@@ -165,7 +165,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if verbose:
             print(f"Final MSE: {final_mse:.4f}")
-        if classif:
+        if classification:
             final_test_acc = self.score(X_test, y_test, metric='accuracy')
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")

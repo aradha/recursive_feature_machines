@@ -143,7 +143,14 @@ class KernelModel(nn.Module):
         return
 
     def evaluate(self, X_eval, y_eval, bs,
-                 metrics=('mse')):
+                 metrics=('mse'), classification=False):
+        
+        if classification:
+            if y_eval.shape[-1] == 1:
+                metrics.append('binary-acc')
+            else:
+                metrics.append('multiclass-acc')
+
         p_list = []
         n_sample, _ = X_eval.shape
         n_batch = n_sample / min(n_sample, bs)
@@ -160,12 +167,16 @@ class KernelModel(nn.Module):
             y_class = torch.argmax(y_eval, dim=-1)
             p_class = torch.argmax(p_eval, dim=-1)
             eval_metrics['multiclass-acc'] = torch.mean(y_class == p_class).item()
+        if 'binary-acc' in metrics:
+            y_class = torch.where(y_eval > 0, 1, 0)
+            p_class = torch.where(p_eval > 0, 1, 0)
+            eval_metrics['binary-acc'] = torch.mean(y_class == p_class).item()
 
         return eval_metrics
 
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
-            n_train_eval=5000, run_epoch_eval=True, scale=1, seed=1):
+            n_train_eval=5000, run_epoch_eval=True, scale=1, seed=1, classification=False):
 
         n_samples, n_labels = y_train.shape
         if n_subsamples is None:
@@ -225,9 +236,15 @@ class KernelModel(nn.Module):
             if run_epoch_eval:
                 train_sec += time.time() - start
                 # print("X_train_eval", X_train_eval.shape,"y_train_eval",y_train_eval.shape)
-                tr_score = self.evaluate(X_train_eval, y_train_eval, bs)
-                tv_score = self.evaluate(X_val, y_val, bs)
-                print(f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}")
+                tr_score = self.evaluate(X_train_eval, y_train_eval, bs, classification=classification)
+                tv_score = self.evaluate(X_val, y_val, bs, classification=classification)
+                out_str = f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}"
+                if classification:
+                    if 'binary-acc' in tr_score:
+                        out_str += f"\t train acc: {tr_score['binary-acc']} \tval acc: {tv_score['binary-acc']}"
+                    else:
+                        out_str += f"\t train acc: {tr_score['multiclass-acc']} \tval acc: {tv_score['multiclass-acc']}"
+                print(out_str)
                 res[epoch] = (tr_score, tv_score, train_sec)
 
             initial_epoch = epoch
