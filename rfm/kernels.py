@@ -179,87 +179,10 @@ def laplacian_gen(X: torch.Tensor, Z: torch.Tensor, sqrtM: torch.Tensor = None, 
     if sqrtM is not None:
         X = X @ sqrtM
         Z = Z @ sqrtM
-    
+
     pdists = torch.cdist(X/L, Z/L, p=v) ## ||X/L-Z/L||_p = (\sum_{i=1}^d (|xi-zi|/L)^p)^(1/p)
     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
     return torch.exp(-1*pdists_p) ## \prod_{i=1}^d exp(-(|xi-zi|/L)^p)
-
-
-# def get_laplacian_gen_grad(
-#     x: torch.Tensor, 
-#     z: torch.Tensor, 
-#     sqrtM: torch.Tensor, 
-#     v: float, 
-#     L: float,
-#     eps: float = 1e-8
-# ) -> torch.Tensor:
-#     """
-#     Computes dk/dx for the kernel k(Mx, z) = ∏ exp(-|(Mx)_i - z_i|^v)
-    
-#     Args:
-#         x: Input tensor (n, d_in) or (d_in,)
-#         z: Input tensor (m, d_out) or (d_out,)
-#         sqrtM: Transformation matrix (d_in, d_out)
-#         v: Exponent parameter
-#         L: bandwidth
-#         eps: Numerical stability term
-        
-#     Returns:
-#         Gradient tensor of shape:
-#         - (n, m, d_in) if x is 2D and z is 2D
-#         - (m, d_in) if x is 1D and z is 2D
-#         - (d_in,) if both are 1D
-#     """
-#     # Ensure 2D tensors
-#     x = x.unsqueeze(0) if x.dim() == 1 else x
-#     z = z.unsqueeze(0) if z.dim() == 1 else z
-    
-#     if sqrtM is None:
-#         sqrtM = torch.eye(x.shape[1], device=x.device, dtype=x.dtype)
-    
-#     # Transform x through linear layer
-#     Mx = x @ sqrtM
-#     z = z @ sqrtM
-    
-#     # Compute pairwise differences
-#     diff = Mx.unsqueeze(1) - z.unsqueeze(0)  # (n, m, d_out)
-#     abs_diff = torch.abs(diff) / L
-    
-#     # Compute kernel components
-#     sum_pow = (abs_diff ** v).sum(dim=-1)  # (n, m)
-#     k = torch.exp(-sum_pow)  # (n, m)
-
-# #     pdists = torch.cdist(Mx/L, z/L, p=v) ## ||X/L-Z/L||_p = (\sum_{i=1}^d (|xi-zi|/L)^p)^(1/p)
-# #     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
-# #     k = torch.exp(-1*pdists_p) ## \prod_{i=1}^d exp(-(|xi-zi|/L)^p)
-    
-#     # Compute gradient components for ∂k/∂(Mx)
-#     sign = torch.sign(diff)
-#     zero_mask = (abs_diff < eps)
-#     safe_abs = torch.where(zero_mask, torch.tensor(eps, device=x.device), abs_diff)
-#     dk_dMx = -v * sign * (safe_abs ** (v-1)) * k.unsqueeze(-1)  # (n, m, d_out)
-#     dk_dMx = torch.where(zero_mask, torch.zeros_like(dk_dMx), dk_dMx)
-    
-#     # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
-#     dk_dx = torch.einsum('nmo,do->nmd', dk_dMx, sqrtM)  # (n, m, d_in)
-    
-#     return dk_dx.squeeze()
-
-# def get_laplace_gen_agop(
-#     x: torch.Tensor, 
-#     z: torch.Tensor, 
-#     sqrtM: torch.Tensor, 
-#     L: float,
-#     v: float, 
-#     alphas: torch.Tensor,
-# ) -> torch.Tensor:
-
-#     dk_dx = get_laplacian_gen_grad(x, z, sqrtM, v, L)
-#     grads = torch.einsum('nmd,mc->ncd', dk_dx, alphas)
-#     grads = grads.reshape(-1, grads.shape[-1])
-#     agop = grads.T@grads
-#     return agop
-
 
 def get_laplacian_gen_grad(
     x: torch.Tensor, 
