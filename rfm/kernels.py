@@ -1,6 +1,7 @@
 '''Implementation of kernel functions.'''
 
 import torch
+import numpy as np
 from tqdm import tqdm
 
 def euclidean_distances(samples, centers, squared=True):
@@ -151,8 +152,29 @@ def dispersal(samples, centers, bandwidth, gamma):
     return kernel_mat
 
 
+#### NTK FUNCTIONS ####
 
+def ntk_kernel(pair1, pair2):
 
+    out = pair1 @ pair2.transpose(1, 0) + 1
+    N1 = torch.sum(torch.pow(pair1, 2), dim=-1).view(-1, 1) + 1
+    N2 = torch.sum(torch.pow(pair2, 2), dim=-1).view(-1, 1) + 1
+
+    XX = torch.sqrt(N1 @ N2.transpose(1, 0))
+    out = out / XX
+
+    out = torch.clamp(out, -1, 1)
+
+    first = 1/np.pi * (out * (np.pi - torch.acos(out)) \
+                       + torch.sqrt(1. - torch.pow(out, 2))) * XX
+    sec = 1/np.pi * out * (np.pi - torch.acos(out)) * XX
+    out = first + sec
+
+    # Set C below as small as possible for fast convergence
+    # C = 1 on real data usually works well
+    # set C > 1 if EigenPro is not converging
+    C = 1
+    return out / C
 
 
 #### LAPLACIAN GEN FUNCTIONS #### 

@@ -2,7 +2,7 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop
+from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 import hickle
 from .utils import matrix_sqrt
@@ -414,6 +414,22 @@ class GaussRFM(RecursiveFeatureMachine):
             return torch.einsum('ncd, ncd -> d', G, G)
         else:
             return torch.einsum("ncd, ncD -> dD", G, G)
+        
+
+class NTKModel(RecursiveFeatureMachine):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.weights = None
+
+    def fit(self, X, y, reg=1e-3):
+        Kmat = ntk_kernel(X, X)
+        alphas = torch.linalg.solve(Kmat + reg * torch.eye(Kmat.shape[0]), y)
+        self.weights = alphas
+
+    def predict(self, Z):
+        out = ntk_kernel(Z, self.X) @ self.weights # (m, c)
+        return out
+        
 
 if __name__ == "__main__":
     torch.set_default_dtype(torch.float32)
