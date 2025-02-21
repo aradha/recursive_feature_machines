@@ -417,17 +417,22 @@ class GaussRFM(RecursiveFeatureMachine):
         
 
 class NTKModel(RecursiveFeatureMachine):
-    def __init__(self, **kwargs):
+    def __init__(self, sqrtM=None, **kwargs):
         super().__init__(**kwargs)
         self.weights = None
+        self.sqrtM = sqrtM
 
     def fit(self, X, y, reg=1e-3):
-        Kmat = ntk_kernel(X, X)
-        alphas = torch.linalg.solve(Kmat + reg * torch.eye(Kmat.shape[0]), y)
+        XM = X.to(self.device) @ self.sqrtM.to(X.device)
+        y = y.to(self.device)
+        Kmat = ntk_kernel(XM, XM)
+        alphas = torch.linalg.solve(Kmat + reg * torch.eye(Kmat.shape[0], device=self.device), y)
         self.weights = alphas
+        self.XM = XM.cpu()
 
     def predict(self, Z):
-        out = ntk_kernel(Z, self.X) @ self.weights # (m, c)
+        ZM = Z.to(self.device) @ self.sqrtM.to(self.device)
+        out = ntk_kernel(ZM, self.XM.to(self.device)) @ self.weights.to(self.device) # (m, c)
         return out
         
 
