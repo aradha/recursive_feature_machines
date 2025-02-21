@@ -178,6 +178,20 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
+        # if classification and accuracy higher, or if regression and mse lower
+        if classification and final_test_acc > best_metric:
+            best_metric = final_test_acc
+            best_alphas = self.weights.cpu().clone()
+            best_M = self.M.cpu().clone()
+            if use_sqrtM:
+                best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+        elif final_mse < best_metric:
+            best_metric = final_mse
+            best_alphas = self.weights.cpu().clone()
+            best_M = self.M.cpu().clone()
+            if use_sqrtM:
+                best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+
         if return_best_params:
             self.M = best_M.to(self.device)
             self.weights = best_alphas.to(self.device)
