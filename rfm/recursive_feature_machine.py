@@ -152,7 +152,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
                     best_sqrtM = matrix_sqrt(self.M).cpu().clone()
-            elif test_mse < best_metric:
+            elif not classification and test_mse < best_metric:
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
@@ -185,7 +185,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_M = self.M.cpu().clone()
             if use_sqrtM:
                 best_sqrtM = matrix_sqrt(self.M).cpu().clone()
-        elif final_mse < best_metric:
+        elif not classification and final_mse < best_metric:
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
             best_M = self.M.cpu().clone()
@@ -193,6 +193,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_sqrtM = matrix_sqrt(self.M).cpu().clone()
 
         if return_best_params:
+            print(f"Returning best parameters with value: {best_metric}")
             self.M = best_M.to(self.device)
             self.weights = best_alphas.to(self.device)
             if use_sqrtM:
