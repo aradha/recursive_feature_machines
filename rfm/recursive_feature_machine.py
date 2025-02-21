@@ -6,6 +6,7 @@ from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_g
 from tqdm.contrib import tenumerate
 import hickle
 from .utils import matrix_sqrt
+from time import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
@@ -104,6 +105,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         use_sqrtM = self.kernel_type in ['laplacian_gen']
+        
         if iters is None:
             iters = self.iters
 
@@ -146,21 +148,22 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
 
             # if classification and accuracy higher, or if regression and mse lower
-            if classification and test_acc > best_metric:
+            if return_best_params and classification and test_acc > best_metric:
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
                     best_sqrtM = matrix_sqrt(self.M).cpu().clone()
-            elif not classification and test_mse < best_metric:
+            elif return_best_params and not classification and test_mse < best_metric:
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
                     best_sqrtM = matrix_sqrt(self.M).cpu().clone()
-            
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, **kwargs)
 
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, **kwargs)
+   
+            
             if return_mse:
                 Ms.append(self.M+0)
                 mses.append(test_mse)
@@ -179,13 +182,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
         # if classification and accuracy higher, or if regression and mse lower
-        if classification and final_test_acc > best_metric:
+        if return_best_params and classification and final_test_acc > best_metric:
             best_metric = final_test_acc
             best_alphas = self.weights.cpu().clone()
             best_M = self.M.cpu().clone()
             if use_sqrtM:
                 best_sqrtM = matrix_sqrt(self.M).cpu().clone()
-        elif not classification and final_mse < best_metric:
+        elif return_best_params and not classification and final_mse < best_metric:
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
             best_M = self.M.cpu().clone()
@@ -294,6 +297,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
+        self.kernel_type = 'laplace'
     
     def update_M(self, samples, p_batch_size):
         samples = samples.to(self.device)
