@@ -2,10 +2,10 @@
 import collections
 import time
 import torch
-
+from tqdm import tqdm
 import torch.nn as nn
 import numpy as np
-
+from sklearn.metrics import roc_auc_score
 from .svd import nystrom_kernel_svd
 
 def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
@@ -58,9 +58,9 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
     device = samples.device
     eigvals_t = eigvals.to(device)
     eigvecs_t = eigvecs.to(device)
-    tail_eigval_t = tail_eigval.to(device)
+    tail_eigval_t = tail_eigval.to(dtype=dtype=samples.dtype, device=device)
 
-    scale = torch.pow(eigvals[0] / tail_eigval, alpha).float()
+    scale = torch.pow(eigvals[0] / tail_eigval, alpha).to(samples.dtype)
     diag_t = (1 - torch.pow(tail_eigval_t / eigvals_t, alpha)) / eigvals_t
 
     def eigenpro_fn(grad, kmat):
@@ -77,7 +77,7 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
     knorms = 1 - torch.sum(eigvecs ** 2, dim=1) * n_sample
     beta = torch.max(knorms)
 
-    return eigenpro_fn, scale.item(), eigvals[0].item(), beta.float().item()
+    return eigenpro_fn, scale.item(), eigvals[0].item(), beta.to(samples.dtype).item()
 
 
 class KernelModel(nn.Module):
@@ -89,9 +89,9 @@ class KernelModel(nn.Module):
         self.device = device
         self.pinned_list = []
 
-        self.centers = self.tensor(centers, release=True)
+        self.centers = self.tensor(centers, release=True, dtype=centers.dtype)
         self.weight = self.tensor(torch.zeros(
-            self.n_centers, y_dim), release=True)
+            self.n_centers, y_dim), release=True, dtype=centers.dtype)
 
     def __del__(self):
         for pinned in self.pinned_list:
@@ -147,11 +147,12 @@ class KernelModel(nn.Module):
 
     def evaluate(self, X_eval, y_eval, bs,
                  metrics=('mse')):
+        
         p_list = []
         n_sample, _ = X_eval.shape
         n_batch = n_sample / min(n_sample, bs)
         for batch_ids in np.array_split(range(n_sample), n_batch):
-            x_batch = self.tensor(X_eval[batch_ids])
+            x_batch = self.tensor(X_eval[batch_ids], dtype=X_eval.dtype)
             p_batch = self.forward(x_batch).cpu()
             p_list.append(p_batch)
         p_eval = torch.concat(p_list, dim=0)
@@ -162,13 +163,31 @@ class KernelModel(nn.Module):
         if 'multiclass-acc' in metrics:
             y_class = torch.argmax(y_eval, dim=-1)
             p_class = torch.argmax(p_eval, dim=-1)
-            eval_metrics['multiclass-acc'] = torch.mean(y_class == p_class).item()
+            eval_metrics['multiclass-acc'] = torch.sum(y_class == p_class).item() / n_sample
+        if 'binary-acc' in metrics:
+            y_class = torch.where(y_eval > 0.5, 1, 0).reshape(-1)
+            p_class = torch.where(p_eval > 0.5, 1, 0).reshape(-1)
+            eval_metrics['binary-acc'] = torch.sum(y_class == p_class).item() / n_sample
+        if 'f1' in metrics:
+            y_class = torch.where(y_eval > 0.5, 1, 0).reshape(-1)
+            p_class = torch.where(p_eval > 0.5, 1, 0).reshape(-1)
+            eval_metrics['f1'] = torch.mean(2 * (y_class * p_class) / (y_class + p_class + 1e-8)).item()
+        if 'auc' in metrics:
+            eval_metrics['auc'] = roc_auc_score(y_eval.cpu().flatten(), p_eval.cpu().flatten())
 
         return eval_metrics
 
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
-            n_train_eval=5000, run_epoch_eval=True, scale=1, seed=1):
+            n_train_eval=5000, run_epoch_eval=True, lr_scale=1, seed=1, classification=False):
+        
+        n_train_eval = min(bs, n_train_eval)
+        metrics = ('mse',)
+        if classification:
+            if y_train.shape[-1] == 1:
+                metrics += ('binary-acc', 'f1', 'auc')
+            else:
+                metrics += ('multiclass-acc')
 
         n_samples, n_labels = y_train.shape
         if n_subsamples is None:
@@ -200,7 +219,7 @@ class KernelModel(nn.Module):
 
         print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
               (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
-        eta = self.tensor(scale * eta / bs, dtype=torch.float)
+        eta = self.tensor(lr_scale * eta / bs, dtype=X_train.dtype)
 
         # Subsample training data for fast estimation of training loss.
         ids = np.random.choice(n_samples,
@@ -211,15 +230,20 @@ class KernelModel(nn.Module):
         res = dict()
         initial_epoch = 0
         train_sec = 0  # training time in seconds
+        best_weights = None
+        if classification:
+            best_metric = 0
+        else:
+            best_metric = float('inf')
 
         for epoch in range(epochs):
             start = time.time()
             for _ in range(epoch - initial_epoch):
                 epoch_ids = np.random.choice(
                     n_samples, n_samples // bs * bs, replace=False)
-                for batch_ids in np.array_split(epoch_ids, n_samples / bs):
-                    x_batch = self.tensor(X_train[batch_ids])
-                    y_batch = self.tensor(y_train[batch_ids])
+                for batch_ids in tqdm(np.array_split(epoch_ids, n_samples / bs)):
+                    x_batch = self.tensor(X_train[batch_ids], dtype=X_train.dtype)
+                    y_batch = self.tensor(y_train[batch_ids], dtype=y_train.dtype)
                     batch_ids = self.tensor(batch_ids)
                     self.eigenpro_iterate(samples, x_batch, y_batch, eigenpro_f,
                                           eta, sample_ids, batch_ids)
@@ -227,12 +251,43 @@ class KernelModel(nn.Module):
 
             if run_epoch_eval:
                 train_sec += time.time() - start
-                # print("X_train_eval", X_train_eval.shape,"y_train_eval",y_train_eval.shape)
-                tr_score = self.evaluate(X_train_eval, y_train_eval, bs)
-                tv_score = self.evaluate(X_val, y_val, bs)
-                print(f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}")
+                tr_score = self.evaluate(X_train_eval, y_train_eval, bs, metrics=metrics)
+                tv_score = self.evaluate(X_val, y_val, bs, metrics=metrics)
+                out_str = f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}"
+                if classification:
+                    if 'binary-acc' in tr_score:
+                        out_str += f"\t train acc: {tr_score['binary-acc']} \tval acc: {tv_score['binary-acc']}"
+                    else:
+                        out_str += f"\t train acc: {tr_score['multiclass-acc']} \tval acc: {tv_score['multiclass-acc']}"
+                    if 'f1' in tr_score:
+                        out_str += f"\t train f1: {tr_score['f1']} \tval f1: {tv_score['f1']}"
+                    if 'auc' in tr_score:
+                        out_str += f"\t train auc: {tr_score['auc']} \tval auc: {tv_score['auc']}"
+                print(out_str)
                 res[epoch] = (tr_score, tv_score, train_sec)
-
+                if classification:
+                    if 'auc' in tv_score:
+                        if tv_score['auc'] > best_metric:
+                            best_metric = tv_score['auc']
+                            best_weights = self.weight.cpu().clone()
+                            print(f"New best auc: {best_metric}")
+                    elif 'binary-acc' in tv_score:
+                        if tv_score['binary-acc'] > best_metric:
+                            best_metric = tv_score['binary-acc']
+                            best_weights = self.weight.cpu().clone()
+                            print(f"New best binary-acc: {best_metric}")
+                    elif 'multiclass-acc' in tv_score:
+                        if tv_score['multiclass-acc'] > best_metric:
+                            best_metric = tv_score['multiclass-acc']
+                            best_weights = self.weight.cpu().clone()
+                            print(f"New best multiclass-acc: {best_metric}")
+                    else:
+                        if tv_score['mse'] < best_metric:
+                            best_metric = tv_score['mse']
+                            best_weights = self.weight.cpu().clone()
+                            print(f"New best mse: {best_metric}")
             initial_epoch = epoch
+
+        self.weight = best_weights.to(self.device)
 
         return res
