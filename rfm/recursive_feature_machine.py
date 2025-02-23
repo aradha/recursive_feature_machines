@@ -2,21 +2,27 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .kernels import laplacian_M, gaussian_M, euclidean_distances_M
+from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 import hickle
+from .utils import matrix_sqrt
+from time import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3):
+    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None):
         super().__init__()
         self.M = None
+        self.sqrtM = None
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
         self.device = device
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit using direct solve
+        self.iters = iters
+        self.kernel_type = None
+        self.p_batch_size = p_batch_size
         
 
     def get_data(self, data_loader):
@@ -31,15 +37,18 @@ class RecursiveFeatureMachine(torch.nn.Module):
         raise NotImplementedError("Must implement this method in a subclass")
 
 
-    def fit_predictor(self, centers, targets, class_weight=None, verbose=True, **kwargs):
+
+    def fit_predictor(self, centers, targets, classification=False, class_weight=None, bs=None, lr_scale=1, **kwargs):
         self.centers = centers
         if self.M is None:
             if self.diag:
-                self.M = torch.ones(centers.shape[-1], device=self.device)
+                self.M = torch.ones(centers.shape[-1], device=self.device, dtype=centers.dtype)
             else:
-                self.M = torch.eye(centers.shape[-1], device=self.device)
+                self.M = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
         if self.fit_using_eigenpro:
-            self.weights = self.fit_predictor_eigenpro(centers, targets, verbose=verbose, **kwargs)
+            self.weights = self.fit_predictor_eigenpro(centers, targets, bs=bs, lr_scale=lr_scale, 
+                                                       verbose=verbose, classification=classification, 
+                                                       **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight)
 
@@ -77,10 +86,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         )
 
 
-    def fit_predictor_eigenpro(self, centers, targets, verbose=True, **kwargs):
+
+    def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
         self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
-        _ = self.model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, **kwargs)
+        _ = self.model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
         return self.model.weight
 
 
@@ -90,12 +100,17 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
 
     def fit(self, train_loader, test_loader,
-            iters=3, name=None, reg=1e-3, method='lstsq', 
-            train_acc=False, loader=True, classif=True, 
+            iters=None, name=None, method='lstsq', 
+            train_acc=False, loader=True, classification=True, 
             return_mse=False, verbose=True, M_batch_size=None, 
-            class_weight=None, **kwargs):
+            class_weight=None, return_best_params=False, bs=None, lr_scale=1,
+            total_points_to_sample=50000, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
+        use_sqrtM = self.kernel_type in ['laplacian_gen']
+        
+        if iters is None:
+            iters = self.iters
 
         if class_weight is not None and self.fit_using_eigenpro:
             raise ValueError("Class weights are not supported for EigenPro")
@@ -112,24 +127,56 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_test, y_test = test_loader
 
         
-        mses = []
-        Ms = []
+        mses, Ms = [], []
+        best_alphas, best_M, best_sqrtM = None, None, None
+        best_metric = float('inf') if not classification else 0 
+        best_iter = None
         for i in range(iters):
-            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, verbose=verbose, **kwargs)
+            self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
+                               classification=classification, class_weight=class_weight, 
+                               bs=bs, lr_scale=lr_scale, verbose=verbose, **kwargs)
             
-            if classif and verbose:
-                train_acc = self.score(X_train, y_train, metric='accuracy')
-                print(f"Round {i}, Train Acc: {100*train_acc:.2f}%")
-                test_acc = self.score(X_test, y_test, metric='accuracy')
-                print(f"Round {i}, Test Acc: {100*test_acc:.2f}%")
+            if classification:
+                test_acc = self.score(X_test, y_test, bs, metric='accuracy')
+                if method == 'lstsq':
+                    train_acc = self.score(X_train, y_train, bs, metric='accuracy')
+                    if verbose:
+                        print(f"Round {i}, Train Acc: {100*train_acc:.2f}%, Test Acc: {100*test_acc:.2f}%")
+                else:
+                    if verbose:
+                        print(f"Round {i}, Test Acc: {100*test_acc:.2f}%")
 
-
-            test_mse = self.score(X_test, y_test, metric='mse')
+            test_mse = self.score(X_test, y_test, bs, metric='mse')
 
             if verbose:
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
-            
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, **kwargs)
+
+            # if classification and accuracy higher, or if regression and mse lower
+            if return_best_params and classification and test_acc > best_metric:
+                best_metric = test_acc
+                best_alphas = self.weights.cpu().clone()
+                best_iter = i
+                if self.M is not None:
+                    best_M = self.M.cpu().clone()
+                    if use_sqrtM:
+                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                else:
+                    best_M = None
+                    best_sqrtM = None
+            elif return_best_params and not classification and test_mse < best_metric:
+                best_metric = test_mse
+                best_alphas = self.weights.cpu().clone()
+                best_iter = i
+                if self.M is not None:
+                    best_M = self.M.cpu().clone()
+                    if use_sqrtM:
+                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                else:
+                    best_M = None
+                    best_sqrtM = None
+
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, **kwargs)
+   
             
             if return_mse:
                 Ms.append(self.M+0)
@@ -138,15 +185,56 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, verbose=verbose, **kwargs)
-        final_mse = self.score(X_test, y_test, metric='mse')
+
+        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
+                           class_weight=class_weight, verbose=verbose, 
+                           classification=classification, bs=bs, **kwargs)
+        final_mse = self.score(X_test, y_test, bs=bs, metric='mse')
         
         if verbose:
             print(f"Final MSE: {final_mse:.4f}")
-        if classif:
-            final_test_acc = self.score(X_test, y_test, metric='accuracy')
+        if classification:
+            final_test_acc = self.score(X_test, y_test, bs=bs, metric='accuracy')
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
+
+        # if classification and accuracy higher, or if regression and mse lower
+        if return_best_params and classification and final_test_acc > best_metric:
+            best_metric = final_test_acc
+            best_alphas = self.weights.cpu().clone()
+            best_iter = iters
+            if self.M is not None:
+                best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            else:
+                best_M = None
+                best_sqrtM = None
+        elif return_best_params and not classification and final_mse < best_metric:
+            best_metric = final_mse
+            best_alphas = self.weights.cpu().clone()
+            best_iter = iters
+            if self.M is not None:
+                best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            else:
+                best_M = None
+                best_sqrtM = None
+
+        if return_best_params:
+            print(f"Returning best parameters with value: {best_metric}")
+            if best_M is not None:
+                self.M = best_M.to(self.device)
+            else:
+                self.M = None   
+            if use_sqrtM and best_sqrtM is not None:
+                self.sqrtM = best_sqrtM.to(self.device)
+            else:
+                self.sqrtM = None
+            self.weights = best_alphas.to(self.device)
+
+        self.best_iter = best_iter
 
         if return_mse:
             return Ms, mses
@@ -173,7 +261,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return M_batch_size
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
-              verbose=True, total_points_to_sample=50000, **kwargs):
+              verbose=True, total_points_to_sample=50000, use_sqrtM=False, **kwargs):
         """Applies EGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -206,15 +294,25 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 M.add_(self.update_M(samples[bids], p_batch_size))
             
         self.M = M / M.max()
+        if use_sqrtM:
+            self.sqrtM = matrix_sqrt(self.M)
         del M
 
         
-    def score(self, samples, targets, metric='mse'):
-        preds = self.predict(samples.to(self.device)).to(targets.device)
+    def score(self, samples, targets, bs, metric='mse'):
+        if bs is None:
+            preds = self.predict(samples.to(self.device)).to(targets.device)
+        else:
+            all_preds = []
+            for batch in samples.split(bs):
+                preds = self.predict(batch.to(self.device)).to(targets.device)
+                all_preds.append(preds)
+            preds = torch.cat(all_preds, dim=0).to(targets.device)
         if metric=='accuracy':
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(targets))
                 if num_classes==2:
+                    preds = torch.where(preds > 0.5, 1, 0).reshape(targets.shape)
                     return accuracy(preds, targets, task="binary").item()
                 else:
                     return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
@@ -233,6 +331,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
+        self.kernel_type = 'laplace'
     
     def update_M(self, samples, p_batch_size):
         samples = samples.to(self.device)
@@ -293,6 +392,30 @@ class LaplaceRFM(RecursiveFeatureMachine):
             return torch.einsum('ncd, ncd -> d', G, G)
         else:
             return torch.einsum("ncd, ncD -> dD", G, G)
+        
+
+class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
+
+    def __init__(self, bandwidth=1., exponent=1., **kwargs):
+        super().__init__(**kwargs)
+        self.bandwidth = bandwidth
+        self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
+        self.kernel_type = 'laplacian_gen'
+        self.exponent = exponent
+        
+
+    def update_M(self, samples, p_batch_size):
+        samples_batch_size = self.p_batch_size
+        
+        if self.M is None:
+            self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
+        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent, self.weights, samples_batch_size)
+        return agop
+
 
 class GaussRFM(RecursiveFeatureMachine):
 
@@ -300,7 +423,7 @@ class GaussRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
-        
+        self.kernel_type = 'gaussian'
 
     def update_M(self, samples, p_batch_size=None):
         
@@ -344,6 +467,27 @@ class GaussRFM(RecursiveFeatureMachine):
             return torch.einsum('ncd, ncd -> d', G, G)
         else:
             return torch.einsum("ncd, ncD -> dD", G, G)
+        
+
+class NTKModel(RecursiveFeatureMachine):
+    def __init__(self, sqrtM=None, **kwargs):
+        super().__init__(**kwargs)
+        self.weights = None
+        self.sqrtM = sqrtM
+
+    def fit(self, X, y, reg=1e-3):
+        XM = X.to(self.device) @ self.sqrtM.to(X.device)
+        y = y.to(self.device)
+        Kmat = ntk_kernel(XM, XM)
+        alphas = torch.linalg.solve(Kmat + reg * torch.eye(Kmat.shape[0], device=self.device), y)
+        self.weights = alphas
+        self.XM = XM.cpu()
+
+    def predict(self, Z):
+        ZM = Z.to(self.device) @ self.sqrtM.to(self.device)
+        out = ntk_kernel(ZM, self.XM.to(self.device)) @ self.weights.to(self.device) # (m, c)
+        return out
+        
 
 if __name__ == "__main__":
     torch.set_default_dtype(torch.float32)
