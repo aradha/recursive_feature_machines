@@ -85,7 +85,7 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1, verb
 
 class KernelModel(nn.Module):
     '''Fast Kernel Regression using EigenPro iteration.'''
-    def __init__(self, kernel_fn, centers, y_dim, device="cuda"):
+    def __init__(self, kernel_fn, centers, y_dim, save_kernel_matrix=False, device="cuda"):
         super(KernelModel, self).__init__()
         self.kernel_fn = kernel_fn
         self.n_centers, self.x_dim = centers.shape
@@ -95,6 +95,10 @@ class KernelModel(nn.Module):
         self.centers = self.tensor(centers, release=True, dtype=centers.dtype)
         self.weight = self.tensor(torch.zeros(
             self.n_centers, y_dim), release=True, dtype=centers.dtype)
+        self.save_kernel_matrix = save_kernel_matrix
+        self.kernel_matrix = [] if save_kernel_matrix else None
+
+        print("Saving kernel matrix:", self.save_kernel_matrix)
 
     def __del__(self):
         for pinned in self.pinned_list:
@@ -110,18 +114,28 @@ class KernelModel(nn.Module):
             self.pinned_list.append(tensor)
         return tensor
 
-    def kernel_matrix(self, samples):
-        return self.kernel_fn(samples, self.centers)
+    def get_kernel_matrix(self, samples, batch_ids=None):
+        if self.save_kernel_matrix and isinstance(self.kernel_matrix, torch.Tensor) and batch_ids is not None:
+            if isinstance(batch_ids, torch.Tensor):
+                batch_ids = batch_ids.to(self.kernel_matrix.device)
+            elif isinstance(batch_ids, np.ndarray):
+                batch_ids = torch.tensor(batch_ids, device=self.kernel_matrix.device)
+            kmat = self.kernel_matrix[batch_ids, :].to(self.device)
+        else:
+            kmat = self.kernel_fn(samples, self.centers)
+        return kmat
 
-    def forward(self, samples, weight=None):
+    def forward(self, batch, weight=None, batch_ids=None, log_kernel_matrix=False):
         if weight is None:
             weight = self.weight
-        kmat = self.kernel_matrix(samples)
+        kmat = self.get_kernel_matrix(batch, batch_ids)
         pred = kmat.mm(weight)
+        if log_kernel_matrix:
+            self.kernel_matrix.append((batch_ids, kmat.cpu()))
         return pred
 
-    def primal_gradient(self, samples, labels, weight):
-        pred = self.forward(samples, weight)
+    def primal_gradient(self, batch, labels, weight, batch_ids=None, log_kernel_matrix=False):
+        pred = self.forward(batch, weight, batch_ids, log_kernel_matrix)
         grad = pred - labels
         return grad
 
@@ -137,32 +151,40 @@ class KernelModel(nn.Module):
         return bs, float(eta)
 
     def eigenpro_iterate(self, samples, x_batch, y_batch, eigenpro_fn,
-                         eta, sample_ids, batch_ids):
+                         eta, sample_ids, batch_ids, epoch):
         # update random coordiate block (for mini-batch)
-        grad = self.primal_gradient(x_batch, y_batch, self.weight)
+        grad = self.primal_gradient(x_batch, y_batch, self.weight, batch_ids, log_kernel_matrix=self.save_kernel_matrix and epoch==1)
         self.weight.index_add_(0, batch_ids, -eta * grad)
 
         # update fixed coordinate block (for EigenPro)
-        kmat = self.kernel_fn(x_batch, samples)
+        if self.save_kernel_matrix and isinstance(self.kernel_matrix, torch.Tensor):
+            # try to load kernel matrix from memory
+            batch_ids_ = batch_ids.to(self.kernel_matrix.device)
+            sample_ids_ = sample_ids.to(self.kernel_matrix.device)
+            # Index rows by batch_ids and columns by sample_ids
+            kmat = self.kernel_matrix[batch_ids_][:, sample_ids_].to(self.device)
+        else:
+            # compute kernel matrix from scratch
+            kmat = self.kernel_fn(x_batch, samples)
         correction = eigenpro_fn(grad, kmat)
         self.weight.index_add_(0, sample_ids, eta * correction)
         return
 
     def evaluate(self, X_eval, y_eval, bs,
                  metrics=('mse')):
-        
         p_list = []
         n_sample, _ = X_eval.shape
         n_batch = n_sample / min(n_sample, bs)
         for batch_ids in np.array_split(range(n_sample), n_batch):
             x_batch = self.tensor(X_eval[batch_ids], dtype=X_eval.dtype)
-            p_batch = self.forward(x_batch).cpu()
+            p_batch = self.forward(x_batch, batch_ids=batch_ids).cpu()
             p_list.append(p_batch)
-        p_eval = torch.concat(p_list, dim=0)
+        p_eval = torch.concat(p_list, dim=0).to(self.device)
+        y_eval = y_eval.to(self.device)
 
         eval_metrics = collections.OrderedDict()
         if 'mse' in metrics:
-            eval_metrics['mse'] = torch.mean(torch.square(p_eval - y_eval.cpu())).item()
+            eval_metrics['mse'] = torch.mean(torch.square(p_eval - y_eval)).item()
         if 'multiclass-acc' in metrics:
             y_class = torch.argmax(y_eval, dim=-1)
             p_class = torch.argmax(p_eval, dim=-1)
@@ -185,7 +207,16 @@ class KernelModel(nn.Module):
             n_train_eval=5000, run_epoch_eval=True, lr_scale=1, 
             verbose=True, seed=1, classification=False):
         
-        n_train_eval = min(bs, n_train_eval)
+        X_train = X_train.to(self.device)
+        y_train = y_train.to(self.device)
+        X_val = X_val.to(self.device)
+        y_val = y_val.to(self.device)
+
+        assert(len(X_train)==len(y_train))
+        assert(len(X_val)==len(y_val))
+
+        if bs is not None:
+            n_train_eval = min(bs, n_train_eval)
         metrics = ('mse',)
         if classification:
             if y_train.shape[-1] == 1:
@@ -195,10 +226,7 @@ class KernelModel(nn.Module):
 
         n_samples, n_labels = y_train.shape
         if n_subsamples is None:
-            if n_samples < 100000:
-                n_subsamples = min(n_samples, 2000)
-            else:
-                n_subsamples = 12000
+            n_subsamples = min(n_samples, 12000)
 
         mem_bytes = (mem_gb - 1) * 1024**3  # preserve 1GB
         bsizes = np.arange(n_subsamples)
@@ -225,12 +253,15 @@ class KernelModel(nn.Module):
             print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
                   (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
         eta = self.tensor(lr_scale * eta / bs, dtype=torch.float)
+        # print("eta device:", eta.device)
 
         # Subsample training data for fast estimation of training loss.
         ids = np.random.choice(n_samples,
                                min(n_samples, n_train_eval),
                                replace=False)
         X_train_eval, y_train_eval = X_train[ids], y_train[ids]
+        # print("X_train_eval device:", X_train_eval.device)
+        # print("y_train_eval device:", y_train_eval.device)
 
         res = dict()
         initial_epoch = 0
@@ -244,15 +275,28 @@ class KernelModel(nn.Module):
         for epoch in range(epochs):
             start = time.time()
             for _ in range(epoch - initial_epoch):
-                epoch_ids = np.random.choice(
-                    n_samples, n_samples // bs * bs, replace=False)
-                for batch_ids in tqdm(np.array_split(epoch_ids, n_samples / bs)):
+                # Create a permutation of all indices
+                epoch_ids = np.random.permutation(n_samples)
+
+                for batch_ids in tqdm(np.array_split(epoch_ids, n_samples // bs)):
+                    batch_ids = self.tensor(batch_ids)
                     x_batch = self.tensor(X_train[batch_ids], dtype=X_train.dtype)
                     y_batch = self.tensor(y_train[batch_ids], dtype=y_train.dtype)
-                    batch_ids = self.tensor(batch_ids)
                     self.eigenpro_iterate(samples, x_batch, y_batch, eigenpro_f,
-                                          eta, sample_ids, batch_ids)
+                                          eta, sample_ids, batch_ids, epoch=epoch)
                     del x_batch, y_batch, batch_ids
+
+                if self.save_kernel_matrix and epoch==1:
+                    # Create a list of (batch_ids, kernel_matrix) pairs
+                    batch_matrices = [(ids, mat) for ids, mat in self.kernel_matrix]
+                    # Get the original order indices
+                    order = torch.cat([ids for ids, _ in batch_matrices])
+                    # Get the sorted indices
+                    sorted_indices = torch.argsort(order).cpu()
+                    # Concatenate all matrices and reorder according to the sorted indices
+                    all_matrices = torch.cat([mat for _, mat in batch_matrices], dim=0)
+                    self.kernel_matrix = all_matrices[sorted_indices]
+                    print("Kernel matrix shape:", self.kernel_matrix.shape)
 
             if run_epoch_eval:
                 train_sec += time.time() - start
