@@ -37,6 +37,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         raise NotImplementedError("Must implement this method in a subclass")
 
 
+
     def fit_predictor(self, centers, targets, classification=False, class_weight=None, bs=None, lr_scale=1, **kwargs):
         self.centers = centers
         if self.M is None:
@@ -46,7 +47,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 self.M = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
         if self.fit_using_eigenpro:
             self.weights = self.fit_predictor_eigenpro(centers, targets, bs=bs, lr_scale=lr_scale, 
-                                                       classification=classification, **kwargs)
+                                                       verbose=verbose, classification=classification, 
+                                                       **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight)
 
@@ -84,10 +86,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         )
 
 
+
     def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
         self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
-        _ = self.model.fit(centers, targets, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
+        _ = self.model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
         return self.model.weight
 
 
@@ -131,7 +134,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
-                               bs=bs, lr_scale=lr_scale, **kwargs)
+                               bs=bs, lr_scale=lr_scale, verbose=verbose, **kwargs)
             
             if classification:
                 test_acc = self.score(X_test, y_test, bs, metric='accuracy')
@@ -182,7 +185,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if name is not None:
                 hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
 
-        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, class_weight=class_weight, classification=classification, bs=bs, **kwargs)
+
+        self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
+                           class_weight=class_weight, verbose=verbose, 
+                           classification=classification, bs=bs, **kwargs)
         final_mse = self.score(X_test, y_test, bs=bs, metric='mse')
         
         if verbose:
