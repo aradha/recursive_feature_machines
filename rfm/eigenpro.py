@@ -184,7 +184,7 @@ class KernelModel(nn.Module):
             if y_train.shape[-1] == 1:
                 metrics += ('binary-acc', 'f1', 'auc')
             else:
-                metrics += ('multiclass-acc')
+                metrics += ('multiclass-acc',)
 
         n_samples, n_labels = y_train.shape
         if n_subsamples is None:
