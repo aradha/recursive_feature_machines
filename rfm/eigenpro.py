@@ -8,7 +8,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 from .svd import nystrom_kernel_svd
 
-def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
+def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1, verbose=True):
     """Prepare gradient map for EigenPro and calculate
     scale factor for learning ratesuch that the update rule,
         p <- p - eta * g
@@ -23,6 +23,7 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
         alpha:  	exponential factor (<= 1) for eigenvalue rescaling due to approximation.
         min_q:  	minimum value of q when q (if None) is calculated automatically.
         seed:   	seed for random number generation.
+        verbose:    whether to print outputs.
 
     Returns:
         eigenpro_fn:	tensor function.
@@ -51,14 +52,15 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
         top_q = torch.sum(torch.pow(1 / eigvals, alpha) < max_bs) - 1
         top_q = max(top_q, min_q)
 
-    print("top_q", top_q, "svd_q", svd_q)
+    if verbose:
+        print("top_q", top_q, "svd_q", svd_q)
     eigvals, tail_eigval = eigvals[:top_q - 1], eigvals[top_q - 1]
     eigvecs = eigvecs[:, :top_q - 1]
 
     device = samples.device
     eigvals_t = eigvals.to(device)
     eigvecs_t = eigvecs.to(device)
-    tail_eigval_t = torch.tensor(tail_eigval, dtype=samples.dtype).to(device)
+    tail_eigval_t = tail_eigval.to(dtype=dtype=samples.dtype, device=device)
 
     scale = torch.pow(eigvals[0] / tail_eigval, alpha).to(samples.dtype)
     diag_t = (1 - torch.pow(tail_eigval_t / eigvals_t, alpha)) / eigvals_t
@@ -70,8 +72,9 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1):
                                                   kmat),
                                          eigvecs_t)))
 
-    print("SVD time: %.2f, top_q: %d, top_eigval: %.2f, new top_eigval: %.2e" %
-          (time.time() - start, top_q, eigvals[0], eigvals[0] / scale))
+    if verbose:
+        print("SVD time: %.2f, top_q: %d, top_eigval: %.2f, new top_eigval: %.2e" %
+              (time.time() - start, top_q, eigvals[0], eigvals[0] / scale))
 
     #beta = kmat.diag().max()
     knorms = 1 - torch.sum(eigvecs ** 2, dim=1) * n_sample
@@ -98,7 +101,10 @@ class KernelModel(nn.Module):
             _ = pinned.to("cpu")
 
     def tensor(self, data, dtype=None, release=False):
-        tensor = torch.tensor(data, requires_grad=False, device=self.device)
+        if torch.is_tensor(data):
+            tensor = data.clone().detach().to(self.device)
+        else:
+            tensor = torch.tensor(data, requires_grad=False, device=self.device)
 
         if release:
             self.pinned_list.append(tensor)
@@ -176,7 +182,8 @@ class KernelModel(nn.Module):
 
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
-            n_train_eval=5000, run_epoch_eval=True, lr_scale=1, seed=1, classification=False):
+            n_train_eval=5000, run_epoch_eval=True, lr_scale=1, 
+            verbose=True, seed=1, classification=False):
         
         n_train_eval = min(bs, n_train_eval)
         metrics = ('mse',)
@@ -205,7 +212,7 @@ class KernelModel(nn.Module):
         sample_ids = self.tensor(sample_ids)
         samples = self.centers[sample_ids]
         eigenpro_f, gap, top_eigval, beta = asm_eigenpro_fn(
-            samples, self.kernel_fn, top_q, bs_gpu, alpha=.95, seed=seed)
+            samples, self.kernel_fn, top_q, bs_gpu, alpha=.95, seed=seed, verbose=verbose)
         new_top_eigval = top_eigval / gap
 
         if eta is None:
@@ -214,9 +221,10 @@ class KernelModel(nn.Module):
         else:
             bs, _ = self._compute_opt_params(bs, bs_gpu, beta, new_top_eigval)
 
-        print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
-              (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
-        eta = self.tensor(lr_scale * eta / bs, dtype=X_train.dtype)
+        if verbose:
+            print("n_subsamples=%d, bs_gpu=%d, eta=%.2f, bs=%d, top_eigval=%.2e, beta=%.2f" %
+                  (n_subsamples, bs_gpu, eta, bs, top_eigval, beta))
+        eta = self.tensor(lr_scale * eta / bs, dtype=torch.float)
 
         # Subsample training data for fast estimation of training loss.
         ids = np.random.choice(n_samples,
@@ -250,17 +258,19 @@ class KernelModel(nn.Module):
                 train_sec += time.time() - start
                 tr_score = self.evaluate(X_train_eval, y_train_eval, bs, metrics=metrics)
                 tv_score = self.evaluate(X_val, y_val, bs, metrics=metrics)
-                out_str = f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}"
-                if classification:
-                    if 'binary-acc' in tr_score:
-                        out_str += f"\t train acc: {tr_score['binary-acc']} \tval acc: {tv_score['binary-acc']}"
-                    else:
-                        out_str += f"\t train acc: {tr_score['multiclass-acc']} \tval acc: {tv_score['multiclass-acc']}"
-                    if 'f1' in tr_score:
-                        out_str += f"\t train f1: {tr_score['f1']} \tval f1: {tv_score['f1']}"
-                    if 'auc' in tr_score:
-                        out_str += f"\t train auc: {tr_score['auc']} \tval auc: {tv_score['auc']}"
-                print(out_str)
+                if verbose:
+                    out_str = f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}"
+                    if classification:
+                        if 'binary-acc' in tr_score:
+                            out_str += f"\t train acc: {tr_score['binary-acc']} \tval acc: {tv_score['binary-acc']}"
+                        else:
+                            out_str += f"\t train acc: {tr_score['multiclass-acc']} \tval acc: {tv_score['multiclass-acc']}"
+                        if 'f1' in tr_score:
+                            out_str += f"\t train f1: {tr_score['f1']} \tval f1: {tv_score['f1']}"
+                        if 'auc' in tr_score:
+                            out_str += f"\t train auc: {tr_score['auc']} \tval auc: {tv_score['auc']}"
+                    print(out_str)
+
                 res[epoch] = (tr_score, tv_score, train_sec)
                 if classification:
                     if 'auc' in tv_score:
