@@ -60,7 +60,7 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1, verb
     device = samples.device
     eigvals_t = eigvals.to(device)
     eigvecs_t = eigvecs.to(device)
-    tail_eigval_t = tail_eigval.to(dtype=dtype=samples.dtype, device=device)
+    tail_eigval_t = tail_eigval.to(dtype=samples.dtype, device=device)
 
     scale = torch.pow(eigvals[0] / tail_eigval, alpha).to(samples.dtype)
     diag_t = (1 - torch.pow(tail_eigval_t / eigvals_t, alpha)) / eigvals_t
