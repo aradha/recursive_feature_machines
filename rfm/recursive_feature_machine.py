@@ -127,6 +127,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         mses, Ms = [], []
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
+        best_iter = None
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
@@ -151,15 +152,25 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if return_best_params and classification and test_acc > best_metric:
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
-                best_M = self.M.cpu().clone()
-                if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                best_iter = i
+                if self.M is not None:
+                    best_M = self.M.cpu().clone()
+                    if use_sqrtM:
+                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                else:
+                    best_M = None
+                    best_sqrtM = None
             elif return_best_params and not classification and test_mse < best_metric:
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
-                best_M = self.M.cpu().clone()
-                if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                best_iter = i
+                if self.M is not None:
+                    best_M = self.M.cpu().clone()
+                    if use_sqrtM:
+                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                else:
+                    best_M = None
+                    best_sqrtM = None
 
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, **kwargs)
    
@@ -185,22 +196,39 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if return_best_params and classification and final_test_acc > best_metric:
             best_metric = final_test_acc
             best_alphas = self.weights.cpu().clone()
-            best_M = self.M.cpu().clone()
-            if use_sqrtM:
-                best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            best_iter = iters
+            if self.M is not None:
+                best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            else:
+                best_M = None
+                best_sqrtM = None
         elif return_best_params and not classification and final_mse < best_metric:
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
-            best_M = self.M.cpu().clone()
-            if use_sqrtM:
-                best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            best_iter = iters
+            if self.M is not None:
+                best_M = self.M.cpu().clone()
+                if use_sqrtM:
+                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+            else:
+                best_M = None
+                best_sqrtM = None
 
         if return_best_params:
             print(f"Returning best parameters with value: {best_metric}")
-            self.M = best_M.to(self.device)
-            self.weights = best_alphas.to(self.device)
-            if use_sqrtM:
+            if best_M is not None:
+                self.M = best_M.to(self.device)
+            else:
+                self.M = None   
+            if use_sqrtM and best_sqrtM is not None:
                 self.sqrtM = best_sqrtM.to(self.device)
+            else:
+                self.sqrtM = None
+            self.weights = best_alphas.to(self.device)
+
+        self.best_iter = best_iter
 
         if return_mse:
             return Ms, mses
