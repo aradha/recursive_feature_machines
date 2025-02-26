@@ -44,10 +44,11 @@ def asm_eigenpro_fn(samples, map_fn, top_q, bs_gpu, alpha, min_q=5, seed=1, verb
     
     eigvals, eigvecs = nystrom_kernel_svd(samples, map_fn, svd_q)
 
-    # Choose k such that the batch size is bounded by
+    # Choose q such that the batch size is bounded by
     #   the subsample size and the memory size.
-    #   Keep the original k if it is pre-specified.
+    #   Keep the original q if it is pre-specified.
     if top_q is None:
+        print("Computing top_q")
         max_bs = min(max(n_sample / 5, bs_gpu), n_sample)
         top_q = torch.sum(torch.pow(1 / eigvals, alpha) < max_bs) - 1
         top_q = max(top_q, min_q)
@@ -184,7 +185,8 @@ class KernelModel(nn.Module):
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
             n_train_eval=5000, run_epoch_eval=True, lr_scale=1, 
-            verbose=True, seed=1, classification=False):
+            verbose=True, seed=1, classification=False, threshold=1e-5,
+            early_stopping_window_size=4):
         
         X_train = X_train.to(self.device)
         y_train = y_train.to(self.device)
@@ -250,6 +252,10 @@ class KernelModel(nn.Module):
             best_metric = 0
         else:
             best_metric = float('inf')
+        
+        # Add early stopping variables
+        val_loss_history = []
+        prev_val_metric = 0 if classification else float('inf')
 
         for epoch in range(epochs):
             start = time.time()
@@ -300,11 +306,35 @@ class KernelModel(nn.Module):
                             best_metric = tv_score['multiclass-acc']
                             best_weights = self.weight.cpu().clone()
                             print(f"New best multiclass-acc: {best_metric}")
-                    else:
-                        if tv_score['mse'] < best_metric:
-                            best_metric = tv_score['mse']
-                            best_weights = self.weight.cpu().clone()
-                            print(f"New best mse: {best_metric}")
+                else:
+                    if tv_score['mse'] < best_metric:
+                        best_metric = tv_score['mse']
+                        best_weights = self.weight.cpu().clone()
+                        print(f"New best mse: {best_metric}")
+
+                # Track validation loss changes
+                if 'binary-acc' in tv_score:
+                    val_loss_history.append(tv_score['binary-acc'] <= prev_val_metric)
+                elif 'multiclass-acc' in tv_score:
+                    val_loss_history.append(tv_score['multiclass-acc'] <= prev_val_metric)
+                else:
+                    val_loss_history.append(tv_score['mse'] >= prev_val_metric)
+                if len(val_loss_history) > early_stopping_window_size:
+                    val_loss_history.pop(0)
+                    # Check if validation loss increased in majority of recent iterations
+                    if sum(val_loss_history) / len(val_loss_history) >= 0.6:  # 70% of recent iterations showed increase
+                        if verbose:
+                            print(f"Early stopping triggered: validation loss increased in majority of last {early_stopping_window_size} epochs")
+                        break
+                
+                if classification:
+                    prev_val_metric = tv_score['multiclass-acc'] if 'multiclass-acc' in tv_score else tv_score['binary-acc']
+                else:
+                    prev_val_metric = tv_score['mse']
+
+                if tr_score['mse'] < threshold:
+                    break
+                
             initial_epoch = epoch
 
         self.weight = best_weights.to(self.device)
