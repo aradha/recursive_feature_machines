@@ -58,4 +58,4 @@ model.fit(
 
 
 # Paper
-[Mechanism for feature learning in neural networks and backpropagation-free machine learning models]([https://www.science.org/doi/10.1126/science.adi5639])
+[Mechanism for feature learning in neural networks and backpropagation-free machine learning models](https://www.science.org/doi/10.1126/science.adi5639)
