@@ -23,7 +23,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.iters = iters
         self.kernel_type = None
         self.p_batch_size = p_batch_size
-        
+        self.agop_power = 0.5 # power for root of agop
 
     def get_data(self, data_loader):
         X, y = [], []
@@ -101,12 +101,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return out.to(samples.device)
 
 
-    def fit(self, train_loader, test_loader,
-            iters=None, name=None, method='lstsq', 
-            train_acc=False, loader=True, classification=True, 
-            return_mse=False, verbose=True, M_batch_size=None, 
-            class_weight=None, return_best_params=False, bs=None, lr_scale=1,
-            total_points_to_sample=50000, **kwargs):
+    def fit(self, train_data, test_data, iters=None, method='lstsq', 
+            classification=True, verbose=True, M_batch_size=None, 
+            class_weight=None, return_best_params=False, bs=None, 
+            return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
+            **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         use_sqrtM = self.kernel_type in ['laplacian_gen']
@@ -120,13 +119,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if verbose and class_weight == 'inverse':
             print("Weighting samples by inverse class frequency")
         
-        if loader:
+        if isinstance(train_data, torch.utils.data.DataLoader):
             print("Loaders provided")
-            X_train, y_train = self.get_data(train_loader)
-            X_test, y_test = self.get_data(test_loader)
+            X_train, y_train = self.get_data(train_data)
+            X_test, y_test = self.get_data(test_data)
         else:
-            X_train, y_train = train_loader
-            X_test, y_test = test_loader
+            X_train, y_train = train_data
+            X_test, y_test = test_data
 
         
         mses, Ms = [], []
@@ -161,7 +160,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
-                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                        best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
                 else:
                     best_M = None
                     best_sqrtM = None
@@ -172,21 +171,19 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
-                        best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                        best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
                 else:
                     best_M = None
                     best_sqrtM = None
 
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, **kwargs)
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
+                       use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
+                       **kwargs)
    
             
-            if return_mse:
+            if return_Ms:
                 Ms.append(self.M+0)
                 mses.append(test_mse)
-
-            if name is not None:
-                hickle.dump(self.M, f"saved_Ms/M_{name}_{i}.h")
-
 
         self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                            class_weight=class_weight, verbose=verbose, 
@@ -208,7 +205,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                    best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
             else:
                 best_M = None
                 best_sqrtM = None
@@ -219,7 +216,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M).cpu().clone()
+                    best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
             else:
                 best_M = None
                 best_sqrtM = None
@@ -238,7 +235,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.best_iter = best_iter
 
-        if return_mse:
+        if return_Ms:
             return Ms, mses
             
         return final_mse
@@ -398,20 +395,24 @@ class LaplaceRFM(RecursiveFeatureMachine):
 
 class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
 
-    def __init__(self, bandwidth=1., exponent=1., **kwargs):
+    def __init__(self, bandwidth=1., exponent=1., agop_power=0.5, **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
         self.kernel_type = 'laplacian_gen'
         self.exponent = exponent
+        self.agop_power = agop_power
         
-
     def update_M(self, samples, p_batch_size):
         samples_batch_size = self.p_batch_size
         
         if self.M is None:
-            self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-            self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            if self.diag:
+                self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            else:
+                self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
 
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
