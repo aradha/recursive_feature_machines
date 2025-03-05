@@ -80,7 +80,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             targets = W@targets
 
         if self.reg > 0:
-            kernel_matrix += self.reg * torch.eye(len(centers), device=self.device)
+            kernel_matrix.fill_diagonal_(kernel_matrix.diagonal() + self.reg)
             
         return torch.linalg.solve(
             kernel_matrix, 
