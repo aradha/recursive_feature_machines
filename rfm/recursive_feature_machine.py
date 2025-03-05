@@ -237,7 +237,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.weights = best_alphas.to(self.device)
 
         self.best_iter = best_iter
-        self.agop_best_model = Ms[-1] if best_iter is None else Ms[best_iter]
 
         if return_mse:
             return Ms, mses
