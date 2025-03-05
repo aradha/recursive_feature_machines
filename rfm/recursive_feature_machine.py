@@ -416,7 +416,15 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
 
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
-        agop = get_laplace_gen_agop(samples, self.centers, self.sqrtM, self.bandwidth, self.exponent, self.weights, samples_batch_size)
+        agop = get_laplace_gen_agop(samples, 
+                                    self.centers, 
+                                    self.sqrtM, 
+                                    self.bandwidth, 
+                                    self.exponent, 
+                                    self.weights, 
+                                    samples_batch_size, 
+                                    self.diag
+                                    )
         return agop
 
 
