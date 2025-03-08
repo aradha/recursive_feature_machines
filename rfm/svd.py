@@ -4,7 +4,7 @@ import torch.linalg as linalg
 import time
 from math import sqrt
 
-def nystrom_kernel_svd(samples, kernel_fn, top_q, method='lobpcg'):
+def nystrom_kernel_svd(samples, kernel_fn, top_q, method='eigh'):
     """Compute top eigensystem of kernel matrix using Nystrom method.
 
     Arguments:

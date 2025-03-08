@@ -97,7 +97,7 @@ class KernelModel(nn.Module):
         self.weight = self.tensor(torch.zeros(
             self.n_centers, y_dim), release=True, dtype=centers.dtype)
         
-        self.save_kernel_matrix = self.n_centers <= 85000
+        self.save_kernel_matrix = self.n_centers <= 75000
         self.kernel_matrix = [] if self.save_kernel_matrix else None
 
     def __del__(self):
@@ -105,8 +105,10 @@ class KernelModel(nn.Module):
             _ = pinned.to("cpu")
 
     def tensor(self, data, dtype=None, release=False):
-        if torch.is_tensor(data):
-            tensor = data.clone().detach().to(self.device)
+        if torch.is_tensor(data) and data.device == self.device:
+            tensor = data.detach()
+        elif torch.is_tensor(data):
+            tensor = data.detach().to(self.device)
         else:
             tensor = torch.tensor(data, requires_grad=False, device=self.device)
 
@@ -164,21 +166,20 @@ class KernelModel(nn.Module):
         self.weight.index_add_(0, sample_ids, eta * correction)
         return
 
-    def evaluate(self, X_all, y_all, n_eval, bs,
-                 metrics=('mse')):
+    def evaluate(self, X_eval, y_eval, bs=None, metrics=('mse')):
         p_list = []
-        n_sample, _ = X_all.shape
-        n_eval = n_sample if n_eval is None else n_eval
-        eval_ids = np.random.choice(n_sample,
-                               min(n_sample, n_eval),
-                               replace=False)
-        n_batch = n_sample // min(n_sample, bs)
-        for batch_ids in np.array_split(eval_ids, n_batch):
-            x_batch = self.tensor(X_all[batch_ids], dtype=X_all.dtype)
-            p_batch = self.forward(x_batch).cpu()
+        n_eval, _ = X_eval.shape
+
+        if bs is None:
+            n_batch = 1
+        else:
+            n_batch = n_eval // min(n_eval, bs)
+
+        for batch_ids in np.array_split(np.arange(n_eval), n_batch):
+            x_batch = self.tensor(X_eval[batch_ids], dtype=X_eval.dtype)
+            p_batch = self.forward(x_batch)
             p_list.append(p_batch)
         p_eval = torch.concat(p_list, dim=0).to(self.device)
-        y_eval = y_all[eval_ids].to(self.device)
 
         eval_metrics = collections.OrderedDict()
         if 'mse' in metrics:
@@ -186,11 +187,11 @@ class KernelModel(nn.Module):
         if 'multiclass-acc' in metrics:
             y_class = torch.argmax(y_eval, dim=-1)
             p_class = torch.argmax(p_eval, dim=-1)
-            eval_metrics['multiclass-acc'] = torch.sum(y_class == p_class).item() / len(eval_ids)
+            eval_metrics['multiclass-acc'] = torch.sum(y_class == p_class).item() / len(y_eval)
         if 'binary-acc' in metrics:
             y_class = torch.where(y_eval > 0.5, 1, 0).reshape(-1)
             p_class = torch.where(p_eval > 0.5, 1, 0).reshape(-1)
-            eval_metrics['binary-acc'] = torch.sum(y_class == p_class).item() / len(eval_ids)
+            eval_metrics['binary-acc'] = torch.sum(y_class == p_class).item() / len(y_eval)
         if 'f1' in metrics:
             y_class = torch.where(y_eval > 0.5, 1, 0).reshape(-1)
             p_class = torch.where(p_eval > 0.5, 1, 0).reshape(-1)
@@ -202,20 +203,24 @@ class KernelModel(nn.Module):
 
     def fit(self, X_train, y_train, X_val, y_val, epochs, mem_gb,
             n_subsamples=None, top_q=None, bs=None, eta=None,
-            n_train_eval=5000, run_epoch_eval=True, lr_scale=1, 
+            n_eval=1000, run_epoch_eval=True, lr_scale=1, 
             verbose=True, seed=1, classification=False, threshold=1e-5,
-            early_stopping_window_size=6):
+            early_stopping_window_size=7, eval_interval=1):
         
         X_train = X_train.to(self.device)
         y_train = y_train.to(self.device)
         X_val = X_val.to(self.device)
         y_val = y_val.to(self.device)
 
+        n_eval = min(n_eval, len(X_train), len(X_val))
+        train_eval_ids = np.random.choice(len(X_train), n_eval, replace=False)
+
+        X_train_eval = X_train[train_eval_ids].clone()
+        y_train_eval = y_train[train_eval_ids].clone()
+
         assert(len(X_train)==len(y_train))
         assert(len(X_val)==len(y_val))
 
-        if bs is not None:
-            n_train_eval = min(bs, n_train_eval)
         metrics = ('mse',)
         if classification:
             if y_train.shape[-1] == 1:
@@ -267,7 +272,6 @@ class KernelModel(nn.Module):
         
         # Add early stopping variables
         val_loss_history = []
-        prev_val_metric = 0 if classification else float('inf')
 
         for epoch in range(epochs):
             start = time.time()
@@ -296,10 +300,18 @@ class KernelModel(nn.Module):
                     self.kernel_matrix = concat_matrix[sort_indices]
                     self.kernel_matrix = self.kernel_matrix.to(self.device)
 
-            if run_epoch_eval:
+            if run_epoch_eval and epoch%eval_interval==0:
                 train_sec += time.time() - start
-                tr_score = self.evaluate(X_train, y_train, n_eval=n_train_eval, bs=bs, metrics=metrics)
-                tv_score = self.evaluate(X_val, y_val, n_eval=None, bs=bs, metrics=metrics)
+                eval_start = time.time()
+                tr_score = self.evaluate(X_train_eval, y_train_eval, bs=bs, metrics=metrics)
+                eval_time = time.time() - eval_start
+                print(f"Train Eval time: {eval_time} seconds")
+
+                eval_start = time.time()
+                tv_score = self.evaluate(X_val, y_val, bs=bs, metrics=metrics)
+                eval_time = time.time() - eval_start
+                print(f"Val Eval time: {eval_time} seconds")
+                
                 if verbose:
                     out_str = f"({epoch} epochs, {train_sec} seconds)\t train l2: {tr_score['mse']} \tval l2: {tv_score['mse']}"
                     if classification:
@@ -314,47 +326,47 @@ class KernelModel(nn.Module):
                     print(out_str)
 
                 res[epoch] = (tr_score, tv_score, train_sec)
+
+                # Track validation loss changes
+                if 'binary-acc' in tv_score:
+                    val_loss_history.append(tv_score['binary-acc'] <= best_metric)
+                elif 'multiclass-acc' in tv_score:
+                    val_loss_history.append(tv_score['multiclass-acc'] <= best_metric)
+                else:
+                    val_loss_history.append(tv_score['mse'] >= best_metric)
+                if len(val_loss_history) > early_stopping_window_size:
+                    val_loss_history.pop(0)
+                    # Check if validation loss increased in majority of recent iterations
+                    if sum(val_loss_history) / len(val_loss_history) >= 0.8:
+                        if verbose:
+                            print(f"Early stopping triggered: validation loss increased in majority of last {early_stopping_window_size} epochs")
+                        break
+
                 if classification:
                     if 'auc' in tv_score:
                         if tv_score['auc'] > best_metric:
                             best_metric = tv_score['auc']
                             best_weights = self.weight.cpu().clone()
+                            val_loss_history = []
                             print(f"New best auc: {best_metric}")
                     elif 'binary-acc' in tv_score:
                         if tv_score['binary-acc'] > best_metric:
                             best_metric = tv_score['binary-acc']
                             best_weights = self.weight.cpu().clone()
+                            val_loss_history = []
                             print(f"New best binary-acc: {best_metric}")
                     elif 'multiclass-acc' in tv_score:
                         if tv_score['multiclass-acc'] > best_metric:
                             best_metric = tv_score['multiclass-acc']
                             best_weights = self.weight.cpu().clone()
+                            val_loss_history = []
                             print(f"New best multiclass-acc: {best_metric}")
                 else:
                     if tv_score['mse'] < best_metric:
                         best_metric = tv_score['mse']
                         best_weights = self.weight.cpu().clone()
+                        val_loss_history = []
                         print(f"New best mse: {best_metric}")
-
-                # Track validation loss changes
-                if 'binary-acc' in tv_score:
-                    val_loss_history.append(tv_score['binary-acc'] <= prev_val_metric)
-                elif 'multiclass-acc' in tv_score:
-                    val_loss_history.append(tv_score['multiclass-acc'] <= prev_val_metric)
-                else:
-                    val_loss_history.append(tv_score['mse'] >= prev_val_metric)
-                if len(val_loss_history) > early_stopping_window_size:
-                    val_loss_history.pop(0)
-                    # Check if validation loss increased in majority of recent iterations
-                    if sum(val_loss_history) / len(val_loss_history) >= 0.6:  # 60% of recent iterations showed increase
-                        if verbose:
-                            print(f"Early stopping triggered: validation loss increased in majority of last {early_stopping_window_size} epochs")
-                        break
-                
-                if classification:
-                    prev_val_metric = tv_score['multiclass-acc'] if 'multiclass-acc' in tv_score else tv_score['binary-acc']
-                else:
-                    prev_val_metric = tv_score['mse']
 
                 if tr_score['mse'] < threshold:
                     break
