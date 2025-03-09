@@ -9,7 +9,11 @@ def float_x(data):
 def matrix_sqrt(M, agop_power=0.5):
     if len(M.shape) == 2:
         assert M.shape[0] == M.shape[1], "Matrix must be square"
-        S, U = torch.linalg.eigh(M)
+        try:
+            S, U = torch.linalg.eigh(M)
+        except:
+            S, U = torch.linalg.eigh(M.cpu())
+            S, U = S.to(M.device), U.to(M.device)
         S[S<0] = 0.
         return U @ torch.diag(S**agop_power) @ U.T
     elif len(M.shape) == 1:
@@ -18,3 +22,4 @@ def matrix_sqrt(M, agop_power=0.5):
         return M**agop_power
     else:
         raise ValueError(f"Invalid matrix shape for square root: {M.shape}")
+

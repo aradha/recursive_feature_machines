@@ -37,7 +37,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         raise NotImplementedError("Must implement this method in a subclass")
 
 
-
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
                       verbose=True, **kwargs):
@@ -86,8 +85,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             kernel_matrix, 
             targets
         )
-
-
 
     def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, verbose, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
@@ -179,10 +176,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
-   
             
             if return_Ms:
-                Ms.append(self.M+0)
+                Ms.append(self.M.cpu()+0)
                 mses.append(test_mse)
 
         self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
@@ -363,7 +359,6 @@ class LaplaceRFM(RecursiveFeatureMachine):
                 )  # (len(p_batch), cd)
             
             centers_term = temp.view(n, c, d)
-
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
 
         else:
@@ -398,7 +393,7 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
     def __init__(self, bandwidth=1., exponent=1., agop_power=0.5, **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
-        self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent)
+        self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent, diag=self.diag)
         self.kernel_type = 'laplacian_gen'
         self.exponent = exponent
         self.agop_power = agop_power

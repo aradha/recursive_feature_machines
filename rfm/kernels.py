@@ -3,7 +3,7 @@
 import torch
 import numpy as np
 from tqdm import tqdm
-
+from typing import Union
 def euclidean_distances(samples, centers, squared=True):
     samples_norm2 = samples.pow(2).sum(-1)
     if samples is centers:
@@ -179,7 +179,7 @@ def ntk_kernel(pair1, pair2):
 
 #### LAPLACIAN GEN FUNCTIONS #### 
 
-def laplacian_gen(X: torch.Tensor, Z: torch.Tensor, sqrtM: torch.Tensor = None, L: float = 10.0, v: float = 1.0, batch_size: int = 50) -> torch.Tensor:
+def laplacian_gen(X: torch.Tensor, Z: torch.Tensor, sqrtM: torch.Tensor = None, L: float = 10.0, v: float = 1.0, batch_size: int = 50, diag: bool = False) -> torch.Tensor:
     """
     Optimized memory-efficient implementation of exponential kernel using batched tensor operations.
     
@@ -199,8 +199,13 @@ def laplacian_gen(X: torch.Tensor, Z: torch.Tensor, sqrtM: torch.Tensor = None, 
     assert d == d2, "Feature dimensions must match"
 
     if sqrtM is not None:
-        X = X @ sqrtM
-        Z = Z @ sqrtM
+        if diag:
+            assert sqrtM.shape == (d,), "sqrtM must be a vector of length d"
+            X = X * sqrtM.view(1, -1)
+            Z = Z * sqrtM.view(1, -1)
+        else:
+            X = X @ sqrtM
+            Z = Z @ sqrtM
 
     pdists = torch.cdist(X/L, Z/L, p=v) ## ||X/L-Z/L||_p = (\sum_{i=1}^d (|xi-zi|/L)^p)^(1/p)
     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
@@ -284,7 +289,7 @@ def get_laplacian_gen_grad(
 def get_laplacian_gen_squared_grads(
     x: torch.Tensor, 
     z: torch.Tensor, 
-    sqrtM: torch.Tensor, 
+    sqrtM: Union[torch.Tensor, None], 
     v: float, 
     L: float,
     alphas: torch.Tensor,
@@ -311,12 +316,17 @@ def get_laplacian_gen_squared_grads(
     # Ensure 2D tensors
     x = x.unsqueeze(0) if x.dim() == 1 else x
     z = z.unsqueeze(0) if z.dim() == 1 else z
+
+    n, d = x.shape
+    m, d2 = z.shape
+    assert d == d2, "Feature dimensions must match"
     
     print(f"BATCH SIZE: {batch_size}")
-    
+
     if sqrtM is None:
-        sqrtM = torch.eye(x.shape[1], device=x.device, dtype=x.dtype)
-    
+        sqrtM = torch.ones(x.shape[1], device=x.device, dtype=x.dtype)
+    sqrtM = sqrtM.view(1, -1)
+
     # Transform x through linear layer
     Mx = x * sqrtM / L
     z = z * sqrtM / L
@@ -347,7 +357,8 @@ def get_laplacian_gen_squared_grads(
         # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
         dk_dx = batch_dk_dMx*sqrtM  # (batch, m, d_in)
         dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
-        dk_dx_sum = dk_dx_sum.transpose(1,-1).reshape(-1, dk_dx_sum.shape[-1]) # ndc -> ncd -> (nc)d
+        dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd 
+        dk_dx_sum = dk_dx_sum.reshape(-1, d) # ncd -> (nc)d
         squared_grads += (dk_dx_sum**2).sum(dim=0)
     return squared_grads
 
