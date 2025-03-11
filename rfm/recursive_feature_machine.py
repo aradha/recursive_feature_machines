@@ -39,7 +39,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
-                      verbose=True, **kwargs):
+                      verbose=True, solver='solve', **kwargs):
         self.centers = centers
         if self.M is None:
             if self.diag:
@@ -51,10 +51,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                                        verbose=verbose, classification=classification, 
                                                        **kwargs)
         else:
-            self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight)
+            self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight, solver=solver)
 
 
-    def fit_predictor_lstsq(self, centers, targets, class_weight=None):
+    def fit_predictor_lstsq(self, centers, targets, class_weight=None, solver='solve'):
         centers = centers.to(self.device)
         targets = targets.to(self.device)
 
@@ -80,11 +80,20 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         if self.reg > 0:
             kernel_matrix.diagonal().add_(self.reg)
-            
-        return torch.linalg.solve(
-            kernel_matrix, 
-            targets
-        )
+        
+        if solver == 'solve':
+            return torch.linalg.solve(
+                kernel_matrix, 
+                targets
+            )
+        elif solver == 'cholesky':
+            L = torch.linalg.cholesky(kernel_matrix, out=kernel_matrix)
+            return torch.cholesky_solve(targets, L)
+        elif solver == 'lu':
+            P, L, U = torch.linalg.lu(kernel_matrix)
+            return torch.linalg.lu_solve(P, L, U, targets)
+        else:
+            raise ValueError(f"Invalid solver: {solver}")
 
     def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, verbose, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
@@ -102,7 +111,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             classification=True, verbose=True, M_batch_size=None, 
             class_weight=None, return_best_params=False, bs=None, 
             return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
-            **kwargs):
+            solver='solve', **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         use_sqrtM = self.kernel_type in ['laplacian_gen']
@@ -132,7 +141,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
-                               bs=bs, lr_scale=lr_scale, verbose=verbose, **kwargs)
+                               bs=bs, lr_scale=lr_scale, verbose=verbose, solver=solver, **kwargs)
             
             if classification:
                 test_acc = self.score(X_test, y_test, bs, metric='accuracy')
