@@ -82,10 +82,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             kernel_matrix.diagonal().add_(self.reg)
         
         if solver == 'solve':
-            return torch.linalg.solve(
-                kernel_matrix, 
-                targets
-            )
+            return torch.linalg.solve(kernel_matrix, targets)
         elif solver == 'cholesky':
             L = torch.linalg.cholesky(kernel_matrix, out=kernel_matrix)
             return torch.cholesky_solve(targets, L)
