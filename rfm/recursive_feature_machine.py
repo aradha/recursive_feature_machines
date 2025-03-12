@@ -258,6 +258,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return lambda x, z, M=self.M, bandwidth=self.bandwidth: gaussian_M(x, z, M, bandwidth)
         elif self.kernel_type == 'ntk':
             return lambda x, z, sqrtM=self.sqrtM: ntk_kernel(x, z, sqrtM)
+        elif self.kernel_type == 'generic':
+            return lambda x, z, sqrtM=self.sqrtM, k=self.kernel_obj: k.get_kernel_matrix(x, z, sqrtM)
         else:
             raise ValueError(f"Missing kernel type: {self.kernel_type}")
     
