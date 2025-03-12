@@ -390,22 +390,15 @@ def get_laplacian_gen_grad(
     # Compute gradient components for ∂k/∂(Mx)
     zero_mask = (pdists < eps) # (n, m)
     
-    N = Mx.shape[0]
-
-    batch_end = min(i + batch_size, N)
-    xb = Mx[i:batch_end]
-    k_batch = k[i:batch_end]
-    zero_mask_batch = zero_mask[i:batch_end]
-    
-    diff = xb.unsqueeze(1) - z.unsqueeze(0)
-    zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
-    safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
-    batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
-    batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
+    diff = x.unsqueeze(1) - z.unsqueeze(0)
+    zero_mask_expanded = zero_mask.unsqueeze(-1)
+    safe_abs = torch.where(zero_mask_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
+    dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k.unsqueeze(-1)
+    dk_dMx = torch.where(zero_mask_expanded, torch.zeros_like(dk_dMx), dk_dMx)
     
 
     # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
-    dk_dx = batch_dk_dMx@sqrtM  # (batch, m, d_in)
+    dk_dx = dk_dMx@sqrtM  # (batch, m, d_in)
     dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
     return dk_dx_sum.transpose(1,-1) # ndc -> ncd    
 
