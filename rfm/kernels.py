@@ -195,6 +195,157 @@ def laplacian_gen(X: torch.Tensor, Z: torch.Tensor, sqrtM: torch.Tensor = None, 
     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
     return torch.exp(-1*pdists_p) ## \prod_{i=1}^d exp(-(|xi-zi|/L)^p)
 
+# def get_laplacian_gen_grad(
+#     x: torch.Tensor, 
+#     z: torch.Tensor, 
+#     sqrtM: torch.Tensor, 
+#     v: float, 
+#     L: float,
+#     alphas: torch.Tensor,
+#     batch_size: int,
+#     eps: float = 1e-8
+# ) -> torch.Tensor:
+#     """
+#     Computes dk/dx for the kernel k(Mx, z) = ∏ exp(-|(Mx)_i - z_i|^v)
+    
+#     Args:
+#         x: Input tensor (n, d_in) or (d_in,)
+#         z: Input tensor (m, d_out) or (d_out,)
+#         sqrtM: Transformation matrix (d_in, d_out)
+#         v: Exponent parameter
+#         L: bandwidth
+#         eps: Numerical stability term
+        
+#     Returns:
+#         Gradient tensor of shape:
+#         - (n, m, d_in) if x is 2D and z is 2D
+#         - (m, d_in) if x is 1D and z is 2D
+#         - (d_in,) if both are 1D
+#     """
+#     # Ensure 2D tensors
+#     x = x.unsqueeze(0) if x.dim() == 1 else x
+#     z = z.unsqueeze(0) if z.dim() == 1 else z
+    
+#     print(f"BATCH SIZE: {batch_size}")
+    
+#     if sqrtM is None:
+#         sqrtM = torch.eye(x.shape[1], device=x.device, dtype=x.dtype)
+    
+#     # Transform x through linear layer
+#     Mx = x @ sqrtM / L
+#     z = z @ sqrtM / L
+    
+#     pdists = torch.cdist(Mx, z, p=v) ## ||X/L-Z/L||_p = (\sum_{i=1}^d (|xi-zi|/L)^p)^(1/p)
+#     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
+#     k = torch.exp(-1*pdists_p) ## \prod_{i=1}^d exp(-(|xi-zi|/L)^p)
+    
+#     # Compute gradient components for ∂k/∂(Mx)
+#     zero_mask = (pdists < eps) # (n, m)
+    
+#     N = Mx.shape[0]
+
+#     # @torch.jit.script
+#     def get_grads(Mx, z, k, zero_mask, sqrtM, alphas, batch_size: int, N: int, eps: float, v: float):
+#         grads = []
+#         # for i in range(0, N, batch_size): # can't jit with TQDM
+#         for i in tqdm(range(0, N, batch_size)):
+#             batch_end = min(i + batch_size, N)
+#             xb = Mx[i:batch_end]
+#             k_batch = k[i:batch_end]
+#             zero_mask_batch = zero_mask[i:batch_end]
+            
+#             diff = xb.unsqueeze(1) - z.unsqueeze(0)
+#             zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
+#             safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
+#             batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
+#             batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
+            
+
+#             # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
+#             dk_dx = batch_dk_dMx@sqrtM  # (batch, m, d_in)
+#             dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
+#             dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd
+#             grads.append(dk_dx_sum)
+#         return torch.cat(grads, dim=0)
+    
+#     return get_grads(Mx, z, k, zero_mask, sqrtM, alphas, batch_size, N, eps, v)
+
+# def get_laplacian_gen_squared_grads(
+#     x: torch.Tensor, 
+#     z: torch.Tensor, 
+#     sqrtM: Union[torch.Tensor, None], 
+#     v: float, 
+#     L: float,
+#     alphas: torch.Tensor,
+#     batch_size: int,
+#     eps: float = 1e-8
+# ) -> torch.Tensor:
+#     """
+#     Computes dk/dx for the kernel k(Mx, z) = ∏ exp(-|(Mx)_i - z_i|^v)
+    
+#     Args:
+#         x: Input tensor (n, d_in) or (d_in,)
+#         z: Input tensor (m, d_in) or (d_in,)
+#         sqrtM: Transformation vector (d_in,)
+#         v: Exponent parameter
+#         L: bandwidth
+#         eps: Numerical stability term
+        
+#     Returns:
+#         Gradient tensor of shape:
+#         - (n, m, d_in) if x is 2D and z is 2D
+#         - (m, d_in) if x is 1D and z is 2D
+#         - (d_in,) if both are 1D
+#     """
+#     # Ensure 2D tensors
+#     x = x.unsqueeze(0) if x.dim() == 1 else x
+#     z = z.unsqueeze(0) if z.dim() == 1 else z
+
+#     n, d = x.shape
+#     m, d2 = z.shape
+#     assert d == d2, "Feature dimensions must match"
+    
+#     print(f"BATCH SIZE: {batch_size}")
+
+#     if sqrtM is None:
+#         sqrtM = torch.ones(x.shape[1], device=x.device, dtype=x.dtype)
+#     sqrtM = sqrtM.view(1, -1)
+
+#     # Transform x through linear layer
+#     Mx = x * sqrtM / L
+#     z = z * sqrtM / L
+    
+#     pdists = torch.cdist(Mx, z, p=v) ## ||X/L-Z/L||_p = (\sum_{i=1}^d (|xi-zi|/L)^p)^(1/p)
+#     pdists_p = pdists**v ## \sum_{i=1}^d (|xi-zi|/L)^p
+#     k = torch.exp(-1*pdists_p) ## \prod_{i=1}^d exp(-(|xi-zi|/L)^p)
+    
+#     # Compute gradient components for ∂k/∂(Mx)
+#     zero_mask = (pdists < eps) # (n, m)
+    
+#     N = Mx.shape[0]
+
+#     squared_grads = 0.
+#     for i in tqdm(range(0, N, batch_size)):
+#         batch_end = min(i + batch_size, N)
+#         xb = Mx[i:batch_end]
+#         k_batch = k[i:batch_end]
+#         zero_mask_batch = zero_mask[i:batch_end]
+        
+#         diff = xb.unsqueeze(1) - z.unsqueeze(0)
+#         zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
+#         safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
+#         batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
+#         batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
+        
+
+#         # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
+#         dk_dx = batch_dk_dMx*sqrtM  # (batch, m, d_in)
+#         dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
+#         dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd 
+#         dk_dx_sum = dk_dx_sum.reshape(-1, d) # ncd -> (nc)d
+#         squared_grads += (dk_dx_sum**2).sum(dim=0)
+#     return squared_grads
+
 def get_laplacian_gen_grad(
     x: torch.Tensor, 
     z: torch.Tensor, 
@@ -202,7 +353,6 @@ def get_laplacian_gen_grad(
     v: float, 
     L: float,
     alphas: torch.Tensor,
-    batch_size: int,
     eps: float = 1e-8
 ) -> torch.Tensor:
     """
@@ -226,8 +376,6 @@ def get_laplacian_gen_grad(
     x = x.unsqueeze(0) if x.dim() == 1 else x
     z = z.unsqueeze(0) if z.dim() == 1 else z
     
-    print(f"BATCH SIZE: {batch_size}")
-    
     if sqrtM is None:
         sqrtM = torch.eye(x.shape[1], device=x.device, dtype=x.dtype)
     
@@ -244,31 +392,22 @@ def get_laplacian_gen_grad(
     
     N = Mx.shape[0]
 
-    # @torch.jit.script
-    def get_grads(Mx, z, k, zero_mask, sqrtM, alphas, batch_size: int, N: int, eps: float, v: float):
-        grads = []
-        # for i in range(0, N, batch_size): # can't jit with TQDM
-        for i in tqdm(range(0, N, batch_size)):
-            batch_end = min(i + batch_size, N)
-            xb = Mx[i:batch_end]
-            k_batch = k[i:batch_end]
-            zero_mask_batch = zero_mask[i:batch_end]
-            
-            diff = xb.unsqueeze(1) - z.unsqueeze(0)
-            zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
-            safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
-            batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
-            batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
-            
-
-            # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
-            dk_dx = batch_dk_dMx@sqrtM  # (batch, m, d_in)
-            dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
-            dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd
-            grads.append(dk_dx_sum)
-        return torch.cat(grads, dim=0)
+    batch_end = min(i + batch_size, N)
+    xb = Mx[i:batch_end]
+    k_batch = k[i:batch_end]
+    zero_mask_batch = zero_mask[i:batch_end]
     
-    return get_grads(Mx, z, k, zero_mask, sqrtM, alphas, batch_size, N, eps, v)
+    diff = xb.unsqueeze(1) - z.unsqueeze(0)
+    zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
+    safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
+    batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
+    batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
+    
+
+    # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
+    dk_dx = batch_dk_dMx@sqrtM  # (batch, m, d_in)
+    dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
+    return dk_dx_sum.transpose(1,-1) # ndc -> ncd    
 
 def get_laplacian_gen_squared_grads(
     x: torch.Tensor, 
@@ -277,7 +416,6 @@ def get_laplacian_gen_squared_grads(
     v: float, 
     L: float,
     alphas: torch.Tensor,
-    batch_size: int,
     eps: float = 1e-8
 ) -> torch.Tensor:
     """
@@ -305,8 +443,6 @@ def get_laplacian_gen_squared_grads(
     m, d2 = z.shape
     assert d == d2, "Feature dimensions must match"
     
-    print(f"BATCH SIZE: {batch_size}")
-
     if sqrtM is None:
         sqrtM = torch.ones(x.shape[1], device=x.device, dtype=x.dtype)
     sqrtM = sqrtM.view(1, -1)
@@ -322,29 +458,18 @@ def get_laplacian_gen_squared_grads(
     # Compute gradient components for ∂k/∂(Mx)
     zero_mask = (pdists < eps) # (n, m)
     
-    N = Mx.shape[0]
+    diff = Mx.unsqueeze(1) - z.unsqueeze(0)
+    zero_mask_expanded = zero_mask.unsqueeze(-1)
+    safe_abs = torch.where(zero_mask_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
+    dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k.unsqueeze(-1)
+    dk_dMx = torch.where(zero_mask_expanded, torch.zeros_like(dk_dMx), dk_dMx)
 
-    squared_grads = 0.
-    for i in tqdm(range(0, N, batch_size)):
-        batch_end = min(i + batch_size, N)
-        xb = Mx[i:batch_end]
-        k_batch = k[i:batch_end]
-        zero_mask_batch = zero_mask[i:batch_end]
-        
-        diff = xb.unsqueeze(1) - z.unsqueeze(0)
-        zero_mask_batch_expanded = zero_mask_batch.unsqueeze(-1)
-        safe_abs = torch.where(zero_mask_batch_expanded, torch.tensor(eps, device=Mx.device), torch.abs(diff))
-        batch_dk_dMx = -v * torch.sign(diff) * (safe_abs ** (v-1)) * k_batch.unsqueeze(-1)
-        batch_dk_dMx = torch.where(zero_mask_batch_expanded, torch.zeros_like(batch_dk_dMx), batch_dk_dMx)
-        
-
-        # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
-        dk_dx = batch_dk_dMx*sqrtM  # (batch, m, d_in)
-        dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
-        dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd 
-        dk_dx_sum = dk_dx_sum.reshape(-1, d) # ncd -> (nc)d
-        squared_grads += (dk_dx_sum**2).sum(dim=0)
-    return squared_grads
+    # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
+    dk_dx = dk_dMx*sqrtM  # (batch, m, d_in)
+    dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
+    dk_dx_sum = dk_dx_sum.transpose(1,-1) # ndc -> ncd 
+    dk_dx_sum = dk_dx_sum.reshape(-1, d) # ncd -> (nc)d
+    return (dk_dx_sum**2).sum(dim=0)
 
 def get_laplace_gen_agop(
     x: torch.Tensor, 
@@ -353,15 +478,14 @@ def get_laplace_gen_agop(
     L: float,
     v: float, 
     alphas: torch.Tensor,
-    batch_size: int,
     diag: bool = False
 ) -> torch.Tensor:
 
     if diag:
-        squared_grads = get_laplacian_gen_squared_grads(x, z, sqrtM, v, L, alphas, batch_size)
+        squared_grads = get_laplacian_gen_squared_grads(x, z, sqrtM, v, L, alphas)
         return squared_grads
     else:
-        grads = get_laplacian_gen_grad(x, z, sqrtM, v, L, alphas, batch_size)
+        grads = get_laplacian_gen_grad(x, z, sqrtM, v, L, alphas)
         grads = grads.reshape(-1, grads.shape[-1])
         agop = grads.T@grads
         return agop
