@@ -7,7 +7,7 @@ class Kernel:
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
 
-    def _get_kernel_grad_tensor_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+    def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
 
     def _transform_m(self, x: torch.Tensor, mat: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -44,43 +44,19 @@ class Kernel:
         # todo: only compute certain blocks?
         return self.get_kernel_matrix(x, x, mat)
 
-    def get_kernel_grad_tensor(self, x: torch.Tensor, z: torch.Tensor,
-                               mat: Optional[torch.Tensor] = None) -> torch.Tensor:
-        """
-        Return the tensor of kernel matrix gradients wrt the second argument.
-        :param x: Matrix of shape (n_x, d_in)
-        :param z: Matrix of shape (n_z, d_in)
-        :param mat: Matrix of shape (d_in, d_out) or vector of shape (d_in)
-        :return: Should return a tensor of shape (n_x, n_z, d_in).
-        """
-        raw_deriv_tensor = self._get_kernel_grad_tensor_impl(self._transform_m(x, mat),
-                                                             self._transform_m(z, mat))
-
-        if mat is not None:
-            if len(mat.shape) == 1:
-                return raw_deriv_tensor * mat[None, None, :]
-            elif len(mat.shape) == 2:
-                return torch.einsum('xzd,di->xzi', raw_deriv_tensor, mat)
-            else:
-                raise ValueError(f'm_matrix should have one or two dimensions, but got shape {mat.shape}')
-
-        return raw_deriv_tensor
-
     def get_function_grads(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
                            mat: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
-        Return the matrix of function gradients at points z. The function is given by \sum_i coefs[i] * k(x[i], \cdot).
-        :param x:
-        :param z:
-        :param coefs:
-        :param mat: sqrtM matrix.
-        :return:
+        Return the matrix of function gradients at points z.
+        The function is given by \sum_i coefs[i] * k(x[i], \cdot).
+        :param x: Matrix of shape (n_x, d_in)
+        :param z: Matrix of shape (n_z, d_in)
+        :param coefs: Vector of shape (n_x,)
+        :param mat: Matrix of shape (d_in, d_out) or vector of shape (d_in)
+        :return: Should return a tensor of shape (n_z, d_in).
         """
-        # optimization: don't apply m_matrix inside the grad tensor computation,
-        # only apply it after summing over coefficients
-        deriv_tensor = self.get_kernel_grad_tensor(self._transform_m(x, mat), self._transform_m(z, mat))
-        # gradients of the function at points z
-        return self._transform_m(torch.einsum('x,xzd->zd', coefs, deriv_tensor), mat)
+        grads = self._get_function_grad_impl(self._transform_m(x, mat), self._transform_m(z, mat), coefs)
+        return self._transform_m(grads, mat)
 
     def get_agop(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
                  mat: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -105,11 +81,11 @@ class LaplaceKernel(Kernel):
         kernel_mat.clamp_(min=0)
         if self.exponent != 1.0:
             kernel_mat.pow_(self.exponent)
-        kernel_mat.mul_(-1./self.bandwidth)
+        kernel_mat.mul_(-1. / self.bandwidth)
         kernel_mat.exp_()
         return kernel_mat
 
-    def _get_func_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+    def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
         dists = torch.cdist(x, z)
         dists.clamp_(min=0)
 
@@ -118,20 +94,38 @@ class LaplaceKernel(Kernel):
         # therefore, setting f(z) = \sum_i coefs[i] k(x[i], z), we have
         # \grad f(z[j]) = \sum_i coefs[i] M[i, j] (z[j] - x[i]),
         # where M[i, j] = -\gamma \beta k(x[i], z[j]) \|x[i] - z[j]\|^{\beta - 2}
-        gamma = 1./self.bandwidth
+        gamma = 1. / self.bandwidth
         kernel_mat = dists ** self.exponent
         kernel_mat.mul_(-gamma)
         kernel_mat.exp_()
 
         # now compute M
+        # todo: is this good enough for the masking?
         dists.clamp_(min=1e-8)  # todo: make configurable?
-        dists.pow_(self.exponent-2)
+        dists.pow_(self.exponent - 2)
         kernel_mat.mul_(dists)
-        kernel_mat.mul_(-gamma*self.exponent)
+        kernel_mat.mul_(-gamma * self.exponent)
 
         # now we want result[j, d] = \sum_i coefs[i] grad_mat[i, j] (z[j, d] - x[i, d])
         kernel_mat.mul_(coefs[:, None])
 
-        return kernel_mat.sum(dim=0)[:, None] * z - kernel_mat @ x
+        return kernel_mat.sum(dim=0)[:, None] * z - kernel_mat.t() @ x
 
 
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+
+    x = torch.linspace(-2.0, 2.0, 5)[:, None]
+    z = torch.linspace(-4.0, 4.0, 500)[:, None]
+    coefs = torch.as_tensor([1.0, 0.8, 0.4, -0.5, -2.0])
+    kernel = LaplaceKernel(bandwidth=2.0, exponent=1.2)
+    # mat = None
+    mat = torch.as_tensor([0.5])
+    # mat = torch.as_tensor([[0.5]])
+    f_values = coefs @ kernel.get_kernel_matrix(x, z, mat)
+    plt.plot(z[:, 0], f_values, 'tab:blue', label='function')
+    plt.plot(z, kernel.get_function_grads(x, z, coefs, mat), 'tab:orange', label='gradient')
+    plt.plot(0.5 * (z[1:, 0] + z[:-1, 0]), (f_values[1:] - f_values[:-1]) / (z[1:, 0] - z[:-1, 0]), color='tab:green',
+             linestyle='--', label='finite diff')
+    plt.legend()
+    plt.show()
