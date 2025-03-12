@@ -150,26 +150,36 @@ class ProductLaplaceKernel(Kernel):
         return kernel_mat
 
     def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+        def forward_func(z):
+            dists = torch.cdist(x, z, p=self.exponent) ** self.exponent
+            factor = -((1. / self.bandwidth) ** self.exponent)
+            # this is \sum_j f(z_j), so the derivative wrt z will be jacobian(f)(z_j) for all z_j
+            return coefs @ torch.exp(factor * (dists * (dists >= self.eps))).sum(dim=1)
+
+        return torch.func.jacrev(forward_func)(z)
+
         # return get_laplacian_gen_grad(z, x, sqrtM=None, v=self.exponent, L=self.bandwidth, alphas=coefs.t(), eps=self.eps).transpose(0, 1)
 
-        def compute_grad(out_idx: int):
-            z_cl = z.clone()
-            z_cl.requires_grad = True
-            dists = torch.cdist(x, z_cl, p=self.exponent) ** self.exponent
-            # masking
-            mask = dists >= self.eps
+        # def compute_grad(out_idx: int):
+        #     z_cl = z.clone()
+        #     z_cl.requires_grad = True
+        #     dists = torch.cdist(x, z_cl, p=self.exponent) ** self.exponent
+        #     # masking
+        #     mask = dists >= self.eps
+        #
+        #     factor = -((1./self.bandwidth)**self.exponent)
+        #
+        #     # this is \sum_j f(z_j), so the derivative wrt z will be \nabla f(z_j) for all z_j
+        #     sum_f = torch.dot(coefs[out_idx, :], torch.exp(factor * (dists * mask)).sum(dim=1))
+        #     sum_f.backward()
+        #     return z_cl.grad
+        # return torch.stack([compute_grad(i) for i in range(coefs.shape[0])], dim=0)
 
-            factor = -((1./self.bandwidth)**self.exponent)
 
-            # this is \sum_j f(z_j), so the derivative wrt z will be \nabla f(z_j) for all z_j
-            sum_f = torch.dot(coefs[out_idx, :], torch.exp(factor * (dists * mask)).sum(dim=1))
-            sum_f.backward()
-            return z_cl.grad
-        return torch.stack([compute_grad(i) for i in range(coefs.shape[0])], dim=0)
 
 if __name__ == '__main__':
     # kernel = LaplaceKernel(bandwidth=2.0, exponent=1.0)
-    kernel = ProductLaplaceKernel(bandwidth=2.0, exponent=1.0)
+    kernel = ProductLaplaceKernel(bandwidth=2.0, exponent=1.2)
 
     n_samples = 2000
     n_features = 100
