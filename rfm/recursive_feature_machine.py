@@ -5,7 +5,7 @@ from torchmetrics.functional.classification import accuracy
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 import hickle
-from .utils import matrix_sqrt
+from .utils import matrix_power
 from time import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
@@ -162,7 +162,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
-                        best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
+                        best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
                 else:
                     best_M = None
                     best_sqrtM = None
@@ -173,7 +173,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
-                        best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
+                        best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
                 else:
                     best_M = None
                     best_sqrtM = None
@@ -208,7 +208,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
+                    best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
             else:
                 best_M = None
                 best_sqrtM = None
@@ -219,7 +219,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
-                    best_sqrtM = matrix_sqrt(self.M, self.agop_power).cpu().clone()
+                    best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
             else:
                 best_M = None
                 best_sqrtM = None
@@ -315,7 +315,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
         self.M = M / M.max()
         if use_sqrtM:
-            self.sqrtM = matrix_sqrt(self.M)
+            self.sqrtM = matrix_power(self.M, self.agop_power)
         del M
 
         
