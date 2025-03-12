@@ -10,6 +10,8 @@ def float_x(data):
 def matrix_power(M, power):
     if len(M.shape) == 2:
         assert M.shape[0] == M.shape[1], "Matrix must be square"
+        M_cpu = M.cpu()
+        original_device = M.device
         try:
             # gpu square root
             S, U = torch.linalg.eigh(M)
@@ -17,12 +19,12 @@ def matrix_power(M, power):
             return U @ torch.diag(S**power) @ U.T
         except:
             # stable cpu square root
-            M.diagonal().add_(1e-8)
+            M_cpu.diagonal().add_(1e-8)
             if power == 0.5:
-                sqrtM = sqrtm(M.cpu())
+                sqrtM = sqrtm(M_cpu)
             else:
-                sqrtM = fractional_matrix_power(M.cpu(), power)
-            sqrtM = torch.from_numpy(sqrtM).to(M.device)
+                sqrtM = fractional_matrix_power(M_cpu, power)
+            sqrtM = torch.from_numpy(sqrtM).to(original_device)
             return sqrtM
     elif len(M.shape) == 1:
         assert M.shape[0] > 0, "Vector must be non-empty"
