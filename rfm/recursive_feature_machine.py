@@ -330,15 +330,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
-        
-    def __del__(self):
-        # Release all tensors explicitly
-        for attr_name in dir(self):
-            attr = getattr(self, attr_name)
-            if isinstance(attr, torch.Tensor) and attr.is_cuda:
-                del attr
-        torch.cuda.empty_cache()
-
 
 class LaplaceRFM(RecursiveFeatureMachine):
 
