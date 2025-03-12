@@ -48,25 +48,31 @@ class Kernel:
                            mat: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
         Return the matrix of function gradients at points z.
-        The function is given by \sum_i coefs[i] * k(x[i], \cdot).
+        The function is given by f_l(\cdot) = \sum_i coefs[l, i] * k(x[i], \cdot).
         :param x: Matrix of shape (n_x, d_in)
         :param z: Matrix of shape (n_z, d_in)
-        :param coefs: Vector of shape (n_x,)
+        :param coefs: Vector of shape (f, n_x) where f is the number of functions
         :param mat: Matrix of shape (d_in, d_out) or vector of shape (d_in)
-        :return: Should return a tensor of shape (n_z, d_in).
+        :return: Should return a tensor of shape (f, n_z, d_in).
         """
         grads = self._get_function_grad_impl(self._transform_m(x, mat), self._transform_m(z, mat), coefs)
         return self._transform_m(grads, mat)
 
     def get_agop(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
                  mat: Optional[torch.Tensor] = None) -> torch.Tensor:
+        # see get_function_grads
         f_grads = self.get_function_grads(x, z, coefs, mat)
-        return f_grads.t() @ f_grads
+        # merge output and n_z dims
+        f_grads = f_grads.reshape(-1, f_grads.shape[-1])
+        return f_grads.transpose(-1, -2) @ f_grads
 
     def get_agop_diag(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
                       mat: Optional[torch.Tensor] = None) -> torch.Tensor:
+        # see get_function_grads
         f_grads = self.get_function_grads(x, z, coefs, mat)
-        return f_grads.square().sum(dim=0)
+        # merge output and n_z dims
+        f_grads = f_grads.reshape(-1, f_grads.shape[-1])
+        return f_grads.square().sum(dim=-2)
 
 
 class LaplaceKernel(Kernel):
@@ -91,8 +97,8 @@ class LaplaceKernel(Kernel):
 
         # gradient of k(x, z) = exp(-\gamma \|x - z\|^\beta) wrt z  (where \beta = self.exponent)
         # is -\gamma k(x, z) \beta \|x - z\|^{\beta - 1} (z-x)/\|x-z\| = -\gamma \beta k(x, z) \|x - z\|^{\beta-2} (z-x)
-        # therefore, setting f(z) = \sum_i coefs[i] k(x[i], z), we have
-        # \grad f(z[j]) = \sum_i coefs[i] M[i, j] (z[j] - x[i]),
+        # therefore, setting f_l (z) = \sum_i coefs[l, i] k(x[i], z), we have
+        # \grad f_l(z[j]) = \sum_i coefs[l, i] M[i, j] (z[j] - x[i]),
         # where M[i, j] = -\gamma \beta k(x[i], z[j]) \|x[i] - z[j]\|^{\beta - 2}
         gamma = 1. / self.bandwidth
         kernel_mat = dists ** self.exponent
@@ -106,10 +112,12 @@ class LaplaceKernel(Kernel):
         kernel_mat.mul_(dists)
         kernel_mat.mul_(-gamma * self.exponent)
 
-        # now we want result[j, d] = \sum_i coefs[i] grad_mat[i, j] (z[j, d] - x[i, d])
-        kernel_mat.mul_(coefs[:, None])
+        # now we want result[l, j, d] = \sum_i coefs[l, i] M[i, j] (z[j, d] - x[i, d])
+        return torch.einsum('li,ij,ijd->ljd', coefs, kernel_mat, (z[None, :, :] - x[:, None, :]))
 
-        return kernel_mat.sum(dim=0)[:, None] * z - kernel_mat.t() @ x
+        # these computations would be more memory-efficient but are too unstable numerically
+        # return (coefs @ kernel_mat)[:, :, None] * z[None, :, :] - torch.einsum('li,id,ij->ljd', coefs, x, kernel_mat)
+        # return torch.einsum('li,ij,jd->ljd', coefs, kernel_mat, z) - torch.einsum('li,ij,id->ljd', coefs, kernel_mat, x)
 
 
 if __name__ == '__main__':
@@ -117,14 +125,14 @@ if __name__ == '__main__':
 
     x = torch.linspace(-2.0, 2.0, 5)[:, None]
     z = torch.linspace(-4.0, 4.0, 500)[:, None]
-    coefs = torch.as_tensor([1.0, 0.8, 0.4, -0.5, -2.0])
-    kernel = LaplaceKernel(bandwidth=2.0, exponent=1.2)
+    coefs = torch.as_tensor([1.0, 0.8, 0.4, -0.5, -2.0])[None, :]
+    kernel = LaplaceKernel(bandwidth=2.0, exponent=1.0)
     # mat = None
     mat = torch.as_tensor([0.5])
     # mat = torch.as_tensor([[0.5]])
-    f_values = coefs @ kernel.get_kernel_matrix(x, z, mat)
+    f_values = coefs[0, :] @ kernel.get_kernel_matrix(x, z, mat)
     plt.plot(z[:, 0], f_values, 'tab:blue', label='function')
-    plt.plot(z, kernel.get_function_grads(x, z, coefs, mat), 'tab:orange', label='gradient')
+    plt.plot(z, kernel.get_function_grads(x, z, coefs, mat).squeeze(0), 'tab:orange', label='gradient')
     plt.plot(0.5 * (z[1:, 0] + z[:-1, 0]), (f_values[1:] - f_values[:-1]) / (z[1:, 0] - z[:-1, 0]), color='tab:green',
              linestyle='--', label='finite diff')
     plt.legend()

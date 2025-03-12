@@ -1,3 +1,4 @@
+from rfm.kernels_new import Kernel
 from .eigenpro import KernelModel
     
 import torch, numpy as np
@@ -52,7 +53,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                                        **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight, solver=solver)
-
 
     def fit_predictor_lstsq(self, centers, targets, class_weight=None, solver='solve'):
         centers = centers.to(self.device)
@@ -111,7 +111,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             solver='solve', **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
-        use_sqrtM = self.kernel_type in ['laplacian_gen']
+        use_sqrtM = self.kernel_type in ['laplacian_gen', 'generic']
         
         if iters is None:
             iters = self.iters
@@ -425,6 +425,30 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
                                     self.M_batch_size, 
                                     self.diag
                                     )
+        return agop
+
+
+class GenericRFM(RecursiveFeatureMachine):
+    def __init__(self, kernel: Kernel, agop_power=0.5, **kwargs):
+        super().__init__(**kwargs)
+        self.kernel_obj = kernel
+        self.kernel = lambda x, z: self.kernel_obj.get_kernel_matrix(x, z, self.sqrtM)
+        self.kernel_type = 'generic'
+        self.agop_power = agop_power
+
+    def update_M(self, samples, p_batch_size):
+        if self.M is None:
+            if self.diag:
+                self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            else:
+                self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
+        agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
+        agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM)
         return agop
 
 
