@@ -399,6 +399,7 @@ def get_laplacian_gen_grad(
 
     # Backprop through linear layer: ∂k/∂x = ∂k/∂(Mx) @ M
     dk_dx = dk_dMx@sqrtM  # (batch, m, d_in)
+    print(f'{dk_dx.transpose(1,-1).shape=}, {alphas.shape=}')
     dk_dx_sum = dk_dx.transpose(1,-1)@alphas # nmd -> ndm, mc -> ndc
     return dk_dx_sum.transpose(1,-1) # ndc -> ncd    
 

@@ -2,6 +2,8 @@ from typing import Optional
 
 import torch
 
+from rfm.kernels import get_laplacian_gen_grad
+
 
 class Kernel:
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
@@ -79,6 +81,7 @@ class LaplaceKernel(Kernel):
     def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10):
         assert bandwidth > 0
         assert exponent > 0
+        assert eps > 0
         self.bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
@@ -130,19 +133,64 @@ class LaplaceKernel(Kernel):
         # return z_term - x_term
 
 
+class ProductLaplaceKernel(Kernel):
+    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10):
+        assert bandwidth > 0
+        assert exponent > 0
+        assert eps > 0
+        self.bandwidth = bandwidth
+        self.exponent = exponent
+        self.eps = eps  # this one is for numerical stability
+
+    def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        kernel_mat = torch.cdist(x, z, p=self.exponent)
+        kernel_mat.pow_(self.exponent)
+        kernel_mat.mul_(-((1./self.bandwidth)**self.exponent))
+        kernel_mat.exp_()
+        return kernel_mat
+
+    def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+        # return get_laplacian_gen_grad(z, x, sqrtM=None, v=self.exponent, L=self.bandwidth, alphas=coefs.t(), eps=self.eps).transpose(0, 1)
+
+        def compute_grad(out_idx: int):
+            z_cl = z.clone()
+            z_cl.requires_grad = True
+            dists = torch.cdist(x, z_cl, p=self.exponent) ** self.exponent
+            # masking
+            mask = dists >= self.eps
+
+            factor = -((1./self.bandwidth)**self.exponent)
+
+            # this is \sum_j f(z_j), so the derivative wrt z will be \nabla f(z_j) for all z_j
+            sum_f = torch.dot(coefs[out_idx, :], torch.exp(factor * (dists * mask)).sum(dim=1))
+            sum_f.backward()
+            return z_cl.grad
+        return torch.stack([compute_grad(i) for i in range(coefs.shape[0])], dim=0)
+
 if __name__ == '__main__':
+    # kernel = LaplaceKernel(bandwidth=2.0, exponent=1.0)
+    kernel = ProductLaplaceKernel(bandwidth=2.0, exponent=1.0)
+
+    n_samples = 2000
+    n_features = 100
+    x = torch.rand(n_samples, n_features)
+    coefs = torch.rand(1, n_samples)
+    kernel.get_agop(x, x, coefs)
+
+    print('here')
+
+
     import matplotlib.pyplot as plt
 
     x = torch.linspace(-2.0, 2.0, 5)[:, None]
     z = torch.linspace(-4.0, 4.0, 500)[:, None]
-    coefs = torch.as_tensor([1.0, 0.8, 0.4, -0.5, -2.0])[None, :]
-    kernel = LaplaceKernel(bandwidth=2.0, exponent=1.0)
+    coefs = torch.as_tensor([[1.0, 0.8, 0.4, -0.5, -2.0], [0.1, 0.2, 0.3, 0.4, 0.5]])
     # mat = None
     mat = torch.as_tensor([0.5])
     # mat = torch.as_tensor([[0.5]])
     f_values = coefs[0, :] @ kernel.get_kernel_matrix(x, z, mat)
     plt.plot(z[:, 0], f_values, 'tab:blue', label='function')
-    plt.plot(z, kernel.get_function_grads(x, z, coefs, mat).squeeze(0), 'tab:orange', label='gradient')
+    plt.plot(z, kernel.get_function_grads(x, z, coefs, mat)[0], 'tab:orange', label='gradient')
     plt.plot(0.5 * (z[1:, 0] + z[:-1, 0]), (f_values[1:] - f_values[:-1]) / (z[1:, 0] - z[:-1, 0]), color='tab:green',
              linestyle='--', label='finite diff')
     plt.legend()

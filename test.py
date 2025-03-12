@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from rfm import LaplaceRFM
-from rfm.kernels_new import LaplaceKernel
+from rfm import LaplaceRFM, GeneralizedLaplaceRFM
+from rfm.kernels_new import LaplaceKernel, ProductLaplaceKernel
 from rfm.recursive_feature_machine import GenericRFM
 
 np.random.seed(0)
@@ -15,10 +15,13 @@ def fstar(X):
         ).float()
 
 # model = LaplaceRFM(bandwidth=1., diag=True)
-model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
+# model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
+# model = GeneralizedLaplaceRFM(bandwidth=50., exponent=1.0, diag=True)
+model = GenericRFM(ProductLaplaceKernel(bandwidth=10., exponent=1.0), diag=True)
 
-n = 4000 # samples
-d = 100  # dimension
+
+n = 1000 # samples
+d = 30  # dimension
 c = 2    # classes
 
 X_train = torch.randn(n, d)
