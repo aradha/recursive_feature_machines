@@ -19,7 +19,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
         self.device = device
         self.mem_gb = mem_gb
-        self.reg = reg # only used when fit using direct solve
+        self.reg = reg # only used when fit with direct solve
         self.iters = iters
         self.kernel_type = None
         self.p_batch_size = p_batch_size
