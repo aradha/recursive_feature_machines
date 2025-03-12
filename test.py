@@ -14,11 +14,11 @@ def fstar(X):
     	    axis=1
         ).float()
 
-# model = LaplaceRFM(bandwidth=1., diag=False)
+# model = LaplaceRFM(bandwidth=1., diag=True)
 model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
 
 n = 4000 # samples
-d = 4  # dimension
+d = 100  # dimension
 c = 2    # classes
 
 X_train = torch.randn(n, d)

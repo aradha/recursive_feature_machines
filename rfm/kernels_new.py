@@ -76,11 +76,12 @@ class Kernel:
 
 
 class LaplaceKernel(Kernel):
-    def __init__(self, bandwidth: float, exponent: float):
+    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10):
         assert bandwidth > 0
         assert exponent > 0
         self.bandwidth = bandwidth
         self.exponent = exponent
+        self.eps = eps  # this one is for numerical stability
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         kernel_mat = torch.cdist(x, z)
@@ -106,24 +107,27 @@ class LaplaceKernel(Kernel):
         kernel_mat.exp_()
 
         # now compute M
-        # todo: is this good enough for the masking?
-        dists.clamp_(min=1e-8)  # todo: make configurable?
+        mask = dists>=self.eps
+        dists.clamp_(min=self.eps)
         dists.pow_(self.exponent - 2)
         kernel_mat.mul_(dists)
+        kernel_mat.mul_(mask)  # this is very important for numerical stability
         kernel_mat.mul_(-gamma * self.exponent)
 
         # now we want result[l, j, d] = \sum_i coefs[l, i] M[i, j] (z[j, d] - x[i, d])
-        z_term = (coefs @ kernel_mat)[:, :, None] * z[None, :, :]
-        x_term = kernel_mat.t() @ (coefs.t()[:, None, :] * x[:, :, None]).reshape(x.shape[0], -1)
-        x_term = x_term.reshape(x.shape[0], x.shape[1], coefs.shape[0]).permute(2, 0, 1)
-        return z_term - x_term
 
-        # this one is numerically stable but uses too much memory
+        # this one uses too much memory
         # return torch.einsum('li,ij,ijd->ljd', coefs, kernel_mat, (z[None, :, :] - x[:, None, :]))
 
-        # these computations would be more memory-efficient but are too unstable numerically
         # return (coefs @ kernel_mat)[:, :, None] * z[None, :, :] - torch.einsum('li,id,ij->ljd', coefs, x, kernel_mat)
-        # return torch.einsum('li,ij,jd->ljd', coefs, kernel_mat, z) - torch.einsum('li,ij,id->ljd', coefs, kernel_mat, x)
+        return torch.einsum('li,ij,jd->ljd', coefs, kernel_mat, z) - torch.einsum('li,ij,id->ljd', coefs, kernel_mat, x)
+
+        # this one is a manual version of the two-einsum version above,
+        # analogous to the old implementation but with some transposed dimensions
+        # z_term = (coefs @ kernel_mat)[:, :, None] * z[None, :, :]
+        # x_term = kernel_mat.t() @ (coefs.t()[:, None, :] * x[:, :, None]).reshape(x.shape[0], -1)
+        # x_term = x_term.reshape(x.shape[0], x.shape[1], coefs.shape[0]).permute(2, 0, 1)
+        # return z_term - x_term
 
 
 if __name__ == '__main__':
