@@ -405,7 +405,6 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
         self.agop_power = agop_power
         
     def update_M(self, samples, p_batch_size):
-        samples_batch_size = self.p_batch_size
         
         if self.M is None:
             if self.diag:
@@ -423,7 +422,7 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
                                     self.bandwidth, 
                                     self.exponent, 
                                     self.weights, 
-                                    samples_batch_size, 
+                                    self.M_batch_size, 
                                     self.diag
                                     )
         return agop
