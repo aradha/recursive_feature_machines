@@ -130,7 +130,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             X_train, y_train = train_data
             X_test, y_test = test_data
 
-        
         mses, Ms = [], []
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
@@ -182,6 +181,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
+            
+            self.kernel = self.make_kernel()
             
             if return_Ms:
                 Ms.append(self.M.cpu()+0)
@@ -247,6 +248,18 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return Ms, mses
             
         return final_mse
+    
+    def make_kernel(self):
+        if self.kernel_type == 'laplace':
+            return lambda x, z, M=self.M, bandwidth=self.bandwidth: laplacian_M(x, z, M, bandwidth)
+        elif self.kernel_type == 'laplacian_gen':
+            return lambda x, z, sqrtM=self.sqrtM, bandwidth=self.bandwidth, exponent=self.exponent, diag=self.diag: laplacian_gen(x, z, sqrtM, bandwidth, exponent, diag)
+        elif self.kernel_type == 'gaussian':
+            return lambda x, z, M=self.M, bandwidth=self.bandwidth: gaussian_M(x, z, M, bandwidth)
+        elif self.kernel_type == 'ntk':
+            return lambda x, z, sqrtM=self.sqrtM: ntk_kernel(x, z, sqrtM)
+        else:
+            raise ValueError(f"Missing kernel type: {self.kernel_type}")
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
@@ -331,13 +344,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
 
+
 class LaplaceRFM(RecursiveFeatureMachine):
 
     def __init__(self, bandwidth=1., **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
-        self.kernel = lambda x, z: laplacian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         self.kernel_type = 'laplace'
+        self.kernel = self.make_kernel()
     
     def update_M(self, samples, p_batch_size):
         samples = samples.to(self.device)
@@ -404,21 +418,13 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
     def __init__(self, bandwidth=1., exponent=1., agop_power=0.5, **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
-        self.kernel = lambda x, z: laplacian_gen(x, z,  self.sqrtM, self.bandwidth, exponent, diag=self.diag)
         self.kernel_type = 'laplacian_gen'
         self.exponent = exponent
         self.agop_power = agop_power
+        self.kernel = self.make_kernel()
         
     def update_M(self, samples, p_batch_size):
         
-        if self.M is None:
-            if self.diag:
-                self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-            else:
-                self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-                self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
         agop = get_laplace_gen_agop(samples, 
@@ -437,8 +443,8 @@ class GaussRFM(RecursiveFeatureMachine):
     def __init__(self, bandwidth=1., **kwargs):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
-        self.kernel = lambda x, z: gaussian_M(x, z, self.M, self.bandwidth) # must take 3 arguments (x, z, M)
         self.kernel_type = 'gaussian'
+        self.kernel = self.make_kernel()
 
     def update_M(self, samples, p_batch_size=None):
         
