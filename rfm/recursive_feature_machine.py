@@ -363,6 +363,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         if self.diag:
             temp = 0
             for p_batch in torch.arange(p).split(p_batch_size):
+                # temp[j,l,d] += \sum_i M[j,i] * coefs[i,l] * x[i,d]
                 temp += K[:, p_batch] @ ( # (n, len(p_batch))
                     self.weights[p_batch,:].view(len(p_batch), c, 1) * (self.centers[p_batch,:] * self.M).view(len(p_batch), 1, d)
                 ).reshape(
@@ -370,6 +371,8 @@ class LaplaceRFM(RecursiveFeatureMachine):
                 )  # (len(p_batch), cd)
             
             centers_term = temp.view(n, c, d)
+
+            # M[j, i] * coefs[i, l] * z[j, d]
             samples_term = samples_term * (samples * self.M).reshape(n, 1, d)
 
         else:

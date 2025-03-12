@@ -113,7 +113,13 @@ class LaplaceKernel(Kernel):
         kernel_mat.mul_(-gamma * self.exponent)
 
         # now we want result[l, j, d] = \sum_i coefs[l, i] M[i, j] (z[j, d] - x[i, d])
-        return torch.einsum('li,ij,ijd->ljd', coefs, kernel_mat, (z[None, :, :] - x[:, None, :]))
+        z_term = (coefs @ kernel_mat)[:, :, None] * z[None, :, :]
+        x_term = kernel_mat.t() @ (coefs.t()[:, None, :] * x[:, :, None]).reshape(x.shape[0], -1)
+        x_term = x_term.reshape(x.shape[0], x.shape[1], coefs.shape[0]).permute(2, 0, 1)
+        return z_term - x_term
+
+        # this one is numerically stable but uses too much memory
+        # return torch.einsum('li,ij,ijd->ljd', coefs, kernel_mat, (z[None, :, :] - x[:, None, :]))
 
         # these computations would be more memory-efficient but are too unstable numerically
         # return (coefs @ kernel_mat)[:, :, None] * z[None, :, :] - torch.einsum('li,id,ij->ljd', coefs, x, kernel_mat)

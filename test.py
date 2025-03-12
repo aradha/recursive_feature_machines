@@ -14,8 +14,8 @@ def fstar(X):
     	    axis=1
         ).float()
 
-model = LaplaceRFM(bandwidth=1., diag=False)
-# model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=0.8), diag=True)
+# model = LaplaceRFM(bandwidth=1., diag=False)
+model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
 
 n = 4000 # samples
 d = 4  # dimension
