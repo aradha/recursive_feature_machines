@@ -240,7 +240,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
             Ms.append(self.M.cpu().clone())
 
-        self.agop_best_model = Ms[-1] if best_iter is None else Ms[best_iter]
+        if return_Ms and fit_last_M:
+            self.agop_best_model = Ms[best_iter]
 
         if return_Ms:
             return Ms, mses
