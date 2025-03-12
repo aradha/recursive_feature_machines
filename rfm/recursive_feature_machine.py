@@ -108,7 +108,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             classification=True, verbose=True, M_batch_size=None, 
             class_weight=None, return_best_params=False, bs=None, 
             return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
-            solver='solve', **kwargs):
+            solver='solve', fit_last_M=False, **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         use_sqrtM = self.kernel_type in ['laplacian_gen']
@@ -236,6 +236,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.weights = best_alphas.to(self.device)
 
         self.best_iter = best_iter
+        if fit_last_M:
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
+            Ms.append(self.M.cpu().clone())
+
+        if return_Ms and fit_last_M:
+            self.agop_best_model = Ms[best_iter]
 
         if return_Ms:
             return Ms, mses
@@ -430,7 +436,6 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
                                     self.bandwidth, 
                                     self.exponent, 
                                     self.weights, 
-                                    self.M_batch_size, 
                                     self.diag
                                     )
         return agop
