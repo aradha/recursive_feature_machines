@@ -1,8 +1,8 @@
-from rfm.kernels_new import Kernel
 from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
+from .kernels_new import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 import hickle
@@ -333,6 +333,30 @@ class RecursiveFeatureMachine(torch.nn.Module):
         elif metric=='mse':
             return (targets - preds).pow(2).mean()
 
+class GenericRFM(RecursiveFeatureMachine):
+    def __init__(self, kernel: Kernel, agop_power=0.5, **kwargs):
+        super().__init__(**kwargs)
+        self.kernel_obj = kernel
+        self.kernel_type = 'generic'
+        self.agop_power = agop_power
+        
+    def kernel(self, x, z):
+        return self.kernel_obj.get_kernel_matrix(x, z, self.sqrtM)
+
+    def update_M(self, samples, p_batch_size):
+        if self.M is None:
+            if self.diag:
+                self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            else:
+                self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+                self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
+        agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
+        agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM)
+        return agop
 
 class LaplaceRFM(RecursiveFeatureMachine):
 
@@ -432,33 +456,6 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
                                     self.diag
                                     )
         return agop
-
-
-class GenericRFM(RecursiveFeatureMachine):
-    def __init__(self, kernel: Kernel, agop_power=0.5, **kwargs):
-        super().__init__(**kwargs)
-        self.kernel_obj = kernel
-        self.kernel_type = 'generic'
-        self.agop_power = agop_power
-        
-    def kernel(x, z):
-        return kernel_obj.get_kernel_matrix(x, z, self.sqrtM)
-
-    def update_M(self, samples, p_batch_size):
-        if self.M is None:
-            if self.diag:
-                self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-            else:
-                self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-                self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-
-        samples = samples.to(self.device)
-        self.centers = self.centers.to(self.device)
-        agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
-        agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM)
-        return agop
-
 
 class GaussRFM(RecursiveFeatureMachine):
 
