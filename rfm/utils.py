@@ -38,3 +38,16 @@ def matrix_power(M, power):
         return M**power
     else:
         raise ValueError(f"Invalid matrix shape for square root: {M.shape}")
+    
+def get_data_from_loader(data_loader):
+    """
+    Get data from a data loader.
+    :param data_loader: Torch DataLoader to get data from.
+    :return: Tuple of tensors - (X, y).
+    """
+    X, y = [], []
+    for idx, batch in enumerate(data_loader):
+        inputs, labels = batch
+        X.append(inputs)
+        y.append(labels)
+    return torch.cat(X, dim=0), torch.cat(y, dim=0)

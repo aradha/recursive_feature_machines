@@ -5,9 +5,7 @@ from torchmetrics.functional.classification import accuracy
 from .kernels_new import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
-import hickle
-from .utils import matrix_power
-from time import time
+from .utils import matrix_power, get_data_from_loader
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
@@ -28,18 +26,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def kernel(self, x, z):
         raise NotImplementedError("Must implement this method in a subclass")
-
-    def get_data(self, data_loader):
-        X, y = [], []
-        for idx, batch in enumerate(data_loader):
-            inputs, labels = batch
-            X.append(inputs)
-            y.append(labels)
-        return torch.cat(X, dim=0), torch.cat(y, dim=0)
-
+    
     def update_M(self):
         raise NotImplementedError("Must implement this method in a subclass")
-
 
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
@@ -127,8 +116,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if isinstance(train_data, torch.utils.data.DataLoader):
             print("Loaders provided")
-            X_train, y_train = self.get_data(train_data)
-            X_test, y_test = self.get_data(test_data)
+            X_train, y_train = get_data_from_loader(train_data)
+            X_test, y_test = get_data_from_loader(test_data)
         else:
             X_train, y_train = train_data
             X_test, y_test = test_data
