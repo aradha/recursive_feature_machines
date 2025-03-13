@@ -8,6 +8,12 @@ def float_x(data):
     return np.float32(data)
 
 def matrix_power(M, power):
+    """
+    Compute the power of a matrix.
+    :param M: Matrix to power.
+    :param power: Power to raise the matrix to.
+    :return: Matrix raised to the power - M^{power}.
+    """
     if len(M.shape) == 2:
         assert M.shape[0] == M.shape[1], "Matrix must be square"
         M_cpu = M.cpu()

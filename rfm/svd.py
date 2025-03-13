@@ -21,8 +21,8 @@ def nystrom_kernel_svd(samples, kernel_fn, top_q, method='eigh'):
     kmat = kernel_fn(samples, samples)
     scaled_kmat = kmat / n_samples
 
-    # vals, vecs = linalg.eigh(scaled_kmat.cuda())
     if method == 'lobpcg':
+        # this seems unstable
         start_time = time.time()
         def custom_tracker(lobpcg_instance):
             current_step = lobpcg_instance.ivars["istep"]
@@ -39,6 +39,7 @@ def nystrom_kernel_svd(samples, kernel_fn, top_q, method='eigh'):
         vals = torch.flip(vals, dims=(0,))
         vecs = torch.flip(vecs, dims=(1,))
     elif method == 'eigh':
+        # this is stable, but computing the full eigendecomposition is unnecessary
         vals, vecs = linalg.eigh(scaled_kmat.cuda())
 
     vals = vals.float()
