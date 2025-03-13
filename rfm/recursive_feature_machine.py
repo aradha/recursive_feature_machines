@@ -25,6 +25,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.p_batch_size = p_batch_size
         self.agop_power = 0.5 # power for root of agop
 
+    def kernel(self, x, z):
+        raise NotImplementedError("Must implement this method in a subclass")
+
     def get_data(self, data_loader):
         X, y = [], []
         for idx, batch in enumerate(data_loader):
@@ -246,18 +249,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return Ms, mses
             
         return final_mse
-    
-    # def make_kernel(self):
-    #     if self.kernel_type == 'laplace':
-    #         return lambda x, z, M=self.M, bandwidth=self.bandwidth: laplacian_M(x, z, M, bandwidth)
-    #     elif self.kernel_type == 'laplacian_gen':
-    #         return lambda x, z, sqrtM=self.sqrtM, bandwidth=self.bandwidth, exponent=self.exponent, diag=self.diag: laplacian_gen(x, z, sqrtM, bandwidth, exponent, diag)
-    #     elif self.kernel_type == 'gaussian':
-    #         return lambda x, z, M=self.M, bandwidth=self.bandwidth: gaussian_M(x, z, M, bandwidth)
-    #     elif self.kernel_type == 'ntk':
-    #         return lambda x, z, sqrtM=self.sqrtM: ntk_kernel(x, z, sqrtM)
-    #     else:
-    #         raise ValueError(f"Missing kernel type: {self.kernel_type}")
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
