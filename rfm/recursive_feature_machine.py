@@ -181,9 +181,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
-            
-            self.kernel = self.make_kernel()
-            
+                        
             if return_Ms:
                 Ms.append(self.M.cpu()+0)
                 mses.append(test_mse)
@@ -249,17 +247,17 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
         return final_mse
     
-    def make_kernel(self):
-        if self.kernel_type == 'laplace':
-            return lambda x, z, M=self.M, bandwidth=self.bandwidth: laplacian_M(x, z, M, bandwidth)
-        elif self.kernel_type == 'laplacian_gen':
-            return lambda x, z, sqrtM=self.sqrtM, bandwidth=self.bandwidth, exponent=self.exponent, diag=self.diag: laplacian_gen(x, z, sqrtM, bandwidth, exponent, diag)
-        elif self.kernel_type == 'gaussian':
-            return lambda x, z, M=self.M, bandwidth=self.bandwidth: gaussian_M(x, z, M, bandwidth)
-        elif self.kernel_type == 'ntk':
-            return lambda x, z, sqrtM=self.sqrtM: ntk_kernel(x, z, sqrtM)
-        else:
-            raise ValueError(f"Missing kernel type: {self.kernel_type}")
+    # def make_kernel(self):
+    #     if self.kernel_type == 'laplace':
+    #         return lambda x, z, M=self.M, bandwidth=self.bandwidth: laplacian_M(x, z, M, bandwidth)
+    #     elif self.kernel_type == 'laplacian_gen':
+    #         return lambda x, z, sqrtM=self.sqrtM, bandwidth=self.bandwidth, exponent=self.exponent, diag=self.diag: laplacian_gen(x, z, sqrtM, bandwidth, exponent, diag)
+    #     elif self.kernel_type == 'gaussian':
+    #         return lambda x, z, M=self.M, bandwidth=self.bandwidth: gaussian_M(x, z, M, bandwidth)
+    #     elif self.kernel_type == 'ntk':
+    #         return lambda x, z, sqrtM=self.sqrtM: ntk_kernel(x, z, sqrtM)
+    #     else:
+    #         raise ValueError(f"Missing kernel type: {self.kernel_type}")
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
         """Computes the optimal batch size for EGOP."""
@@ -351,7 +349,9 @@ class LaplaceRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel_type = 'laplace'
-        self.kernel = self.make_kernel()
+
+    def kernel(self, x, z):
+        return laplacian_M(x, z, self.M, self.bandwidth)
     
     def update_M(self, samples, p_batch_size):
         samples = samples.to(self.device)
@@ -421,8 +421,10 @@ class GeneralizedLaplaceRFM(RecursiveFeatureMachine):
         self.kernel_type = 'laplacian_gen'
         self.exponent = exponent
         self.agop_power = agop_power
-        self.kernel = self.make_kernel()
-        
+    
+    def kernel(self, x, z):
+        return laplacian_gen(x, z, self.sqrtM, self.bandwidth, self.exponent, self.diag)
+
     def update_M(self, samples, p_batch_size):
         
         samples = samples.to(self.device)
@@ -444,7 +446,9 @@ class GaussRFM(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.bandwidth = bandwidth
         self.kernel_type = 'gaussian'
-        self.kernel = self.make_kernel()
+
+    def kernel(self, x, z):
+        return gaussian_M(x, z, self.M, self.bandwidth)
 
     def update_M(self, samples, p_batch_size=None):
         
@@ -495,6 +499,9 @@ class NTKModel(RecursiveFeatureMachine):
         super().__init__(**kwargs)
         self.weights = None
         self.sqrtM = sqrtM
+
+    def kernel(self, x, z):
+        raise NotImplementedError("NTKModel does not implement a kernel")
 
     def fit(self, X, y, reg=1e-3):
         XM = X.to(self.device) @ self.sqrtM.to(X.device)
