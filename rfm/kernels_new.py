@@ -6,6 +6,9 @@ from rfm.kernels import get_laplacian_gen_grad
 
 
 class Kernel:
+    def __init__(self):
+        self.is_adaptive_bandwidth = True
+
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
 
@@ -29,7 +32,25 @@ class Kernel:
             else:
                 raise ValueError(f'm_matrix should have one or two dimensions, but got shape {mat.shape}')
         return x
+    
+    def _reset_adaptive_bandwidth(self):
+        self.is_adaptive_bandwidth = False
+        return
 
+    def _adapt_bandwidth(self, kernel_mat: torch.Tensor, adapt_mode='median') -> float:
+        n = kernel_mat.shape[0]
+        mask = ~torch.eye(n, dtype=bool, device=kernel_mat.device)
+        # Get median of off-diagonal elements only
+        if adapt_mode == 'median':
+            bandwidth_multiplier = torch.median(kernel_mat[mask])
+        elif adapt_mode == 'mean':
+            bandwidth_multiplier = torch.mean(kernel_mat[mask])
+        else:
+            raise ValueError(f"Invalid adapt_mode: {adapt_mode}")
+        self.bandwidth = self.base_bandwidth * bandwidth_multiplier.item()
+        self.is_adaptive_bandwidth = True
+        return
+    
     def get_kernel_matrix(self, x: torch.Tensor, z: torch.Tensor,
                           mat: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -78,20 +99,28 @@ class Kernel:
 
 
 class LaplaceKernel(Kernel):
-    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10):
+    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10, bandwidth_mode: str = 'constant'):
+        super().__init__()
         assert bandwidth > 0
         assert exponent > 0
         assert eps > 0
+        self.base_bandwidth = bandwidth
         self.bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
+        self.bandwidth_mode = bandwidth_mode
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         kernel_mat = torch.cdist(x, z)
         kernel_mat.clamp_(min=0)
+        if not self.is_adaptive_bandwidth:
+            self._adapt_bandwidth(kernel_mat)
         if self.exponent != 1.0:
             kernel_mat.pow_(self.exponent)
-        kernel_mat.mul_(-1. / self.bandwidth)
+
+        print("Adapted bandwidth: ", self.bandwidth)
+
+        kernel_mat.mul_(-1./(self.bandwidth**self.exponent))
         kernel_mat.exp_()
         return kernel_mat
 
@@ -134,18 +163,23 @@ class LaplaceKernel(Kernel):
 
 
 class ProductLaplaceKernel(Kernel):
-    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10):
+    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10, bandwidth_mode: str = 'constant'):
+        super().__init__()
         assert bandwidth > 0
         assert exponent > 0
         assert eps > 0
         self.bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
+        self.bandwidth_mode = bandwidth_mode
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         kernel_mat = torch.cdist(x, z, p=self.exponent)
+        kernel_mat.clamp_(min=0)
+        if not self.is_adaptive_bandwidth:
+            self._adapt_bandwidth(kernel_mat)            
         kernel_mat.pow_(self.exponent)
-        kernel_mat.mul_(-((1./self.bandwidth)**self.exponent))
+        kernel_mat.mul_(-1./(self.bandwidth**self.exponent))
         kernel_mat.exp_()
         return kernel_mat
 

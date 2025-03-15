@@ -9,7 +9,7 @@ from .utils import matrix_power, get_data_from_loader
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None):
+    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
         super().__init__()
         self.M = None
         self.sqrtM = None
@@ -23,13 +23,20 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.kernel_type = None
         self.p_batch_size = p_batch_size
         self.agop_power = 0.5 # power for root of agop
+        self.bandwidth_mode = bandwidth_mode
 
     def kernel(self, x, z):
         raise NotImplementedError("Must implement this method in a subclass")
     
     def update_M(self):
         raise NotImplementedError("Must implement this method in a subclass")
-
+    
+    def reset_adaptive_bandwidth(self):
+        if self.kernel_type != 'generic':
+            raise ValueError("Cannot reset bandwidth for non-generic kernels")
+        self.kernel_obj._reset_adaptive_bandwidth()
+        return 
+    
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
                       verbose=True, solver='solve', **kwargs):
@@ -127,6 +134,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_metric = float('inf') if not classification else 0 
         best_iter = None
         for i in range(iters):
+
+            if self.bandwidth_mode == 'adaptive':
+                # adaptive bandwidth will be reset on next kernel computation
+                print("Resetting adaptive bandwidth")
+                self.reset_adaptive_bandwidth()
+
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
                                bs=bs, lr_scale=lr_scale, verbose=verbose, solver=solver, **kwargs)
