@@ -51,13 +51,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.fit_using_eigenpro:
             if self.prefit_eigenpro:
                 random_indices = torch.randperm(centers.shape[0])[:self.max_lstsq_size]
-                curr_mem_use = torch.cuda.memory_allocated() # in bytes
                 start = time.time()
                 sub_weights = self.fit_predictor_lstsq(centers[random_indices], targets[random_indices], class_weight=class_weight, solver=solver)
                 end = time.time()
                 print(f"Time taken to prefit Eigenpro with {self.max_lstsq_size} points: {end-start} seconds")
-                curr_mem_use = torch.cuda.memory_allocated() # in bytes
-                print("curr_mem_use after prefit Eigenpro", curr_mem_use)
                 initial_weights = torch.zeros_like(targets)
                 initial_weights[random_indices] = sub_weights.to(targets.device, dtype=targets.dtype)
             else:
@@ -159,6 +156,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
         best_iter = None
+        best_bandwidth = self.kernel_obj.bandwidth+0
         for i in range(iters):
 
             if self.bandwidth_mode == 'adaptive':
@@ -190,6 +188,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
+                best_bandwidth = self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -201,6 +200,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
+                best_bandwidth = self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -234,6 +234,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_test_acc
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
+            best_bandwidth = self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
@@ -245,6 +246,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
+            best_bandwidth = self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
@@ -264,6 +266,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             else:
                 self.sqrtM = None
             self.weights = best_alphas.to(self.device)
+            self.kernel_obj.bandwidth = best_bandwidth
 
         self.best_iter = best_iter
         if fit_last_M:
