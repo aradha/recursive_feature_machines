@@ -334,6 +334,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 M.add_(self.update_M(samples[bids], p_batch_size))
             
         self.M = M / M.max()
+        print(f'{self.M=}')
         if use_sqrtM:
             self.sqrtM = matrix_power(self.M, self.agop_power)
         del M

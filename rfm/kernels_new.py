@@ -37,7 +37,7 @@ class Kernel:
         self.is_adaptive_bandwidth = False
         return
 
-    def _adapt_bandwidth(self, kernel_mat: torch.Tensor, adapt_mode='median') -> float:
+    def _adapt_bandwidth(self, kernel_mat: torch.Tensor, adapt_mode='median'):
         n = kernel_mat.shape[0]
         mask = ~torch.eye(n, dtype=bool, device=kernel_mat.device)
         # Get median of off-diagonal elements only
@@ -48,6 +48,7 @@ class Kernel:
         else:
             raise ValueError(f"Invalid adapt_mode: {adapt_mode}")
         self.bandwidth = self.base_bandwidth * bandwidth_multiplier.item()
+        print(f'{self.bandwidth=}')
         self.is_adaptive_bandwidth = True
         return
     
@@ -169,6 +170,7 @@ class ProductLaplaceKernel(Kernel):
         assert exponent > 0
         assert eps > 0
         self.bandwidth = bandwidth
+        self.base_bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
         self.bandwidth_mode = bandwidth_mode

@@ -20,7 +20,7 @@ def fstar(X):
 # model = LaplaceRFM(bandwidth=1., diag=True)
 # model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
 # model = GeneralizedLaplaceRFM(bandwidth=50., exponent=1.0, diag=True)
-model = GenericRFM(ProductLaplaceKernel(bandwidth=50., exponent=1.0), diag=True)
+model = GenericRFM(ProductLaplaceKernel(bandwidth=50., exponent=1.0), diag=True, bandwidth_mode='adaptive', reg=1e-3)
 
 
 n = 4000 # samples
