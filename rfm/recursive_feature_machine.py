@@ -42,6 +42,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
                       verbose=True, solver='solve', **kwargs):
+        
+        if self.bandwidth_mode == 'adaptive':
+            # adaptive bandwidth will be reset on next kernel computation
+            print("Resetting adaptive bandwidth")
+            self.reset_adaptive_bandwidth()
+
         self.centers = centers
         if self.M is None:
             if self.diag:
@@ -158,12 +164,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_iter = None
         best_bandwidth = self.kernel_obj.bandwidth+0
         for i in range(iters):
-
-            if self.bandwidth_mode == 'adaptive':
-                # adaptive bandwidth will be reset on next kernel computation
-                print("Resetting adaptive bandwidth")
-                self.reset_adaptive_bandwidth()
-
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
                                bs=bs, lr_scale=lr_scale, verbose=verbose, solver=solver, **kwargs)
