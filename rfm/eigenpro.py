@@ -97,7 +97,7 @@ class KernelModel(nn.Module):
         self.weight = self.tensor(torch.zeros(
             self.n_centers, y_dim), release=True, dtype=centers.dtype)
         
-        self.save_kernel_matrix = self.n_centers <= 75000
+        self.save_kernel_matrix = False
         self.kernel_matrix = [] if self.save_kernel_matrix else None
 
     def __del__(self):

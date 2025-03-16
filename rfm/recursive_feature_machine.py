@@ -6,6 +6,7 @@ from .kernels_new import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 from .utils import matrix_power, get_data_from_loader
+import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
 
@@ -24,6 +25,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.p_batch_size = p_batch_size
         self.agop_power = 0.5 # power for root of agop
         self.bandwidth_mode = bandwidth_mode
+        self.max_lstsq_size = 70_000
 
     def kernel(self, x, z):
         raise NotImplementedError("Must implement this method in a subclass")
@@ -47,19 +49,37 @@ class RecursiveFeatureMachine(torch.nn.Module):
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
         if self.fit_using_eigenpro:
+            if self.prefit_eigenpro:
+                random_indices = torch.randperm(centers.shape[0])[:self.max_lstsq_size]
+                curr_mem_use = torch.cuda.memory_allocated() # in bytes
+                start = time.time()
+                sub_weights = self.fit_predictor_lstsq(centers[random_indices], targets[random_indices], class_weight=class_weight, solver=solver)
+                end = time.time()
+                print(f"Time taken to prefit Eigenpro with {self.max_lstsq_size} points: {end-start} seconds")
+                curr_mem_use = torch.cuda.memory_allocated() # in bytes
+                print("curr_mem_use after prefit Eigenpro", curr_mem_use)
+                initial_weights = torch.zeros_like(targets)
+                initial_weights[random_indices] = sub_weights.to(targets.device, dtype=targets.dtype)
+            else:
+                initial_weights = None
+
             self.weights = self.fit_predictor_eigenpro(centers, targets, bs=bs, lr_scale=lr_scale, 
                                                        verbose=verbose, classification=classification, 
+                                                       initial_weights=initial_weights,
                                                        **kwargs)
         else:
             self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight, solver=solver)
 
     def fit_predictor_lstsq(self, centers, targets, class_weight=None, solver='solve'):
-        centers = centers.to(self.device)
-        targets = targets.to(self.device)
-
         assert(len(centers)==len(targets))
 
+        if centers.device != self.device:
+            centers = centers.to(self.device)
+            targets = targets.to(self.device)
+
         kernel_matrix = self.kernel(centers, centers)    
+
+
 
         if class_weight == 'inverse':
             flat_targets = targets.flatten().long()
@@ -81,21 +101,25 @@ class RecursiveFeatureMachine(torch.nn.Module):
             kernel_matrix.diagonal().add_(self.reg)
         
         if solver == 'solve':
-            return torch.linalg.solve(kernel_matrix, targets)
+            out = torch.linalg.solve(kernel_matrix, targets)
         elif solver == 'cholesky':
             L = torch.linalg.cholesky(kernel_matrix, out=kernel_matrix)
-            return torch.cholesky_solve(targets, L)
+            out = torch.cholesky_solve(targets, L)
         elif solver == 'lu':
             P, L, U = torch.linalg.lu(kernel_matrix)
-            return torch.linalg.lu_solve(P, L, U, targets)
+            out = torch.linalg.lu_solve(P, L, U, targets)
         else:
             raise ValueError(f"Invalid solver: {solver}")
+        
+        return out
 
-    def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, verbose, **kwargs):
+    def fit_predictor_eigenpro(self, centers, targets, bs, lr_scale, verbose, initial_weights=None, **kwargs):
         n_classes = 1 if targets.dim()==1 else targets.shape[-1]
-        self.model = KernelModel(self.kernel, centers, n_classes, device=self.device)
-        _ = self.model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
-        return self.model.weight
+        ep_model = KernelModel(self.kernel, centers, n_classes, device=self.device)
+        if initial_weights is not None:
+            ep_model.weight = initial_weights.to(ep_model.weight.device, dtype=ep_model.weight.dtype)
+        _ = ep_model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
+        return ep_model.weight
 
 
     def predict(self, samples):
@@ -107,11 +131,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
             classification=True, verbose=True, M_batch_size=None, 
             class_weight=None, return_best_params=False, bs=None, 
             return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
-            solver='solve', fit_last_M=False, **kwargs):
+            solver='solve', fit_last_M=False, prefit_eigenpro=True, 
+            **kwargs):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
+        self.prefit_eigenpro = prefit_eigenpro
         use_sqrtM = self.kernel_type in ['laplacian_gen', 'generic']
-        
+
         if iters is None:
             iters = self.iters
 

@@ -118,7 +118,7 @@ class LaplaceKernel(Kernel):
         if self.exponent != 1.0:
             kernel_mat.pow_(self.exponent)
 
-        print("Adapted bandwidth: ", self.bandwidth)
+        # print("Adapted bandwidth: ", self.bandwidth)
 
         kernel_mat.mul_(-1./(self.bandwidth**self.exponent))
         kernel_mat.exp_()
