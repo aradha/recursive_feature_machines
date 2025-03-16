@@ -238,4 +238,4 @@ if __name__ == '__main__':
     plt.plot(0.5 * (z[1:, 0] + z[:-1, 0]), (f_values[1:] - f_values[:-1]) / (z[1:, 0] - z[:-1, 0]), color='tab:green',
              linestyle='--', label='finite diff')
     plt.legend()
-    plt.show()
+    plt.show(
