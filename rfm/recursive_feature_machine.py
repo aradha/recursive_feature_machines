@@ -2,7 +2,7 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .kernels_new import Kernel
+from .generic_kernels import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 from .utils import matrix_power, get_data_from_loader
