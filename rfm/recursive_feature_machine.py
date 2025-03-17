@@ -38,6 +38,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         super().__init__()
         self.M = None
         self.sqrtM = None
+        self.use_sqrtM = False
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
@@ -72,19 +73,19 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = cpu_copy(self.M)
-                if use_sqrtM:
+                if self.use_sqrtM:
                     best_sqrtM = matrix_power(self.M, self.agop_power)
             else:
                 best_M = None
                 best_sqrtM = None
-        elif not classification and current_metric < best_metric:
+        elif not self.classification and current_metric < best_metric:
             best_metric = current_metric
             best_alphas = cpu_copy(self.weights)
             best_iter = current_iter
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = cpu_copy(self.M)
-                if use_sqrtM:
+                if self.use_sqrtM:
                     best_sqrtM = matrix_power(self.M, self.agop_power)
             else:
                 best_M = None
@@ -210,7 +211,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         self.prefit_eigenpro = prefit_eigenpro
-        use_sqrtM = self.kernel_type in ['laplacian_gen', 'generic']
+        self.use_sqrtM = self.kernel_type in ['laplacian_gen', 'generic']
+        self.classification = classification
 
         if iters is None:
             iters = self.iters
@@ -262,7 +264,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                                                                                                 test_acc if classification else test_mse, i)
 
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
-                       use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
+                       use_sqrtM=self.use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
                         
             if return_Ms:
@@ -282,13 +284,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
         if return_best_params:
-            self.update_best_params(best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, 
-                                    final_test_acc if classification else final_mse, iters)
-
-        if return_best_params:
-            print(f"Returning best parameters with value: {best_metric}")
+            best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth = self.update_best_params(best_metric, best_alphas, best_M, 
+                                                                                                                best_sqrtM, best_iter, best_bandwidth, 
+                                                                                                                final_test_acc if classification else final_mse, 
+                                                                                                                iters)
+            print(f"Returning best parameters with value: {best_metric:.4f}")
             self.M = None if best_M is None else best_M.to(self.device)
-            if use_sqrtM and best_sqrtM is not None:
+            if self.use_sqrtM and best_sqrtM is not None:
                 self.sqrtM = best_sqrtM.to(self.device)
             else:
                 self.sqrtM = None
@@ -300,7 +302,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.best_iter = best_iter
         if fit_last_M:
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, 
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=self.use_sqrtM, 
                         total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
             Ms.append(cpu_copy(self.M))
 
