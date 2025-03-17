@@ -327,7 +327,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return final_mse
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
-        """Computes the optimal batch size for EGOP."""
+        """Computes the optimal batch size for AGOP."""
         THREADS_PER_BLOCK = 512 # pytorch default
         def tensor_mem_usage(numels):
             """Calculates memory footprint of tensor based on number of elements."""
@@ -347,7 +347,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
               verbose=True, total_points_to_sample=50000, use_sqrtM=False, **kwargs):
-        """Applies EGOP to update the Mahalanobis matrix M."""
+        """Applies AGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
         M = torch.zeros_like(self.M) if self.M is not None else (
@@ -367,7 +367,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         num_batches = 1 + total_points_to_sample//M_batch_size
         batches = batches[:num_batches]
         if verbose:
-            print(f'Sampling AGOP on {num_batches*M_batch_size} total points')
+            print(f'Sampling AGOP on maximum of {num_batches*M_batch_size} total points')
 
         if verbose:
             for i, bids in tenumerate(batches):
@@ -385,6 +385,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         
     def score(self, samples, targets, bs, metric='mse'):
+        """
+        samples: torch.Tensor of shape (n, d)
+        targets: torch.Tensor of shape (n, c)
+        bs: batch size over samples for prediction
+        metric: 'mse' or 'accuracy'
+        """
         if bs is None:
             preds = self.predict(samples.to(self.device)).to(targets.device)
         else:
@@ -410,6 +416,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return (targets - preds).pow(2).mean()
 
 class GenericRFM(RecursiveFeatureMachine):
+    """
+    The preferred RFM subclass for generic kernels. These enable more fine-grained control over the kernel functions
+    including adaptive bandwidths and different exponents. The kernel functions are faster and more memory efficient than
+    the specific RFM subclasses.
+    """
     def __init__(self, kernel: Kernel, agop_power=0.5, **kwargs):
         super().__init__(**kwargs)
         self.kernel_obj = kernel
