@@ -9,8 +9,32 @@ from .utils import matrix_power, get_data_from_loader
 import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
+    """
+    Main object for RFMs with sklearn style interface. Subclasses must implement the kernel and update_M methods. 
+    The subclasses may be either specific kernels (Laplace, Gaussian, GeneralizedLaplace, etc.), in which case the kernel method is automatically derived,
+    or generic kernels (GenericKernel), in which case a Kernel object must be provided. I.e. one can either define:
+
+        from rfm import LaplaceRFM
+        model = LaplaceRFM(bandwidth=1, device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
+
+        or
+
+        from rfm import GenericRFM
+        from rfm.kernels_new import LaplaceKernel
+        model = GenericRFM(kernel=LaplaceKernel(bandwidth=1, exponent=1.2), device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
+    """
 
     def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
+        """
+        device: device to run the model on
+        mem_gb: memory in GB for AGOP
+        diag: if True, Mahalanobis matrix M will be diagonal
+        centering: if True, update_M will center the gradients before taking an outer product
+        reg: regularization for the kernel matrix
+        iters: number of iterations to run
+        p_batch_size: batch size over centers for AGOP computation
+        bandwidth_mode: 'constant' or 'adaptive'
+        """
         super().__init__()
         self.M = None
         self.sqrtM = None
@@ -25,7 +49,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.p_batch_size = p_batch_size
         self.agop_power = 0.5 # power for root of agop
         self.bandwidth_mode = bandwidth_mode
-        self.max_lstsq_size = 70_000
+        self.max_lstsq_size = 70_000 # max number of points to use for direct solve
 
     def kernel(self, x, z):
         raise NotImplementedError("Must implement this method in a subclass")
@@ -35,7 +59,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def reset_adaptive_bandwidth(self):
         if self.kernel_type != 'generic':
-            raise ValueError("Cannot reset bandwidth for non-generic kernels")
+            raise ValueError("Cannot reset bandwidth for non-generic kernels, choose constant bandwidth mode")
         self.kernel_obj._reset_adaptive_bandwidth()
         return 
     
@@ -136,6 +160,24 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
             solver='solve', fit_last_M=False, prefit_eigenpro=True, 
             **kwargs):
+        """
+        train_data: torch.utils.data.DataLoader or tuple of (X, y)
+        test_data: torch.utils.data.DataLoader or tuple of (X, y)
+        iters: number of iterations to run
+        method: 'lstsq' or 'eigenpro'
+        classification: if True, the model will tune for (and report) accuracy, else just MSE loss
+        verbose: if True, print progress
+        M_batch_size: batch size over samples for AGOP computation
+        class_weight: 'inverse' or None
+        return_best_params: if True, return the best parameters
+        bs: batch size for prediction
+        return_Ms: if True, return the Mahalanobis matrix at each iteration
+        lr_scale: learning rate scale for EigenPro
+        total_points_to_sample: number of points to sample for AGOP computation
+        solver: 'solve' or 'cholesky' or 'lu', used in LSTSQ computation
+        fit_last_M: if True, fit the Mahalanobis matrix one last time after training
+        prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
+        """
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         self.prefit_eigenpro = prefit_eigenpro
@@ -162,7 +204,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
         best_iter = None
-        best_bandwidth = self.kernel_obj.bandwidth+0
+        best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
@@ -188,7 +230,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
-                best_bandwidth = self.kernel_obj.bandwidth+0
+                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -200,7 +242,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
-                best_bandwidth = self.kernel_obj.bandwidth+0
+                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -234,7 +276,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_test_acc
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
-            best_bandwidth = self.kernel_obj.bandwidth+0
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
@@ -246,7 +288,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
-            best_bandwidth = self.kernel_obj.bandwidth+0
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
@@ -266,7 +308,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             else:
                 self.sqrtM = None
             self.weights = best_alphas.to(self.device)
-            self.kernel_obj.bandwidth = best_bandwidth
+            if self.kernel_type == 'generic':
+                self.kernel_obj.bandwidth = best_bandwidth
+            else:
+                self.bandwidth = best_bandwidth
 
         self.best_iter = best_iter
         if fit_last_M:
@@ -282,7 +327,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return final_mse
     
     def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
-        """Computes the optimal batch size for EGOP."""
+        """Computes the optimal batch size for AGOP."""
         THREADS_PER_BLOCK = 512 # pytorch default
         def tensor_mem_usage(numels):
             """Calculates memory footprint of tensor based on number of elements."""
@@ -302,7 +347,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
               verbose=True, total_points_to_sample=50000, use_sqrtM=False, **kwargs):
-        """Applies EGOP to update the Mahalanobis matrix M."""
+        """Applies AGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
         M = torch.zeros_like(self.M) if self.M is not None else (
@@ -322,7 +367,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         num_batches = 1 + total_points_to_sample//M_batch_size
         batches = batches[:num_batches]
         if verbose:
-            print(f'Sampling AGOP on {num_batches*M_batch_size} total points')
+            print(f'Sampling AGOP on maximum of {num_batches*M_batch_size} total points')
 
         if verbose:
             for i, bids in tenumerate(batches):
@@ -340,6 +385,12 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         
     def score(self, samples, targets, bs, metric='mse'):
+        """
+        samples: torch.Tensor of shape (n, d)
+        targets: torch.Tensor of shape (n, c)
+        bs: batch size over samples for prediction
+        metric: 'mse' or 'accuracy'
+        """
         if bs is None:
             preds = self.predict(samples.to(self.device)).to(targets.device)
         else:
@@ -365,6 +416,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return (targets - preds).pow(2).mean()
 
 class GenericRFM(RecursiveFeatureMachine):
+    """
+    The preferred RFM subclass for generic kernels. These enable more fine-grained control over the kernel functions
+    including adaptive bandwidths and different exponents. The kernel functions are faster and more memory efficient than
+    the specific RFM subclasses.
+    """
     def __init__(self, kernel: Kernel, agop_power=0.5, **kwargs):
         super().__init__(**kwargs)
         self.kernel_obj = kernel
