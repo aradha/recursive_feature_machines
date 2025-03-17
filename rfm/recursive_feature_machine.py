@@ -35,7 +35,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def reset_adaptive_bandwidth(self):
         if self.kernel_type != 'generic':
-            raise ValueError("Cannot reset bandwidth for non-generic kernels")
+            raise ValueError("Cannot reset bandwidth for non-generic kernels, choose constant bandwidth mode")
         self.kernel_obj._reset_adaptive_bandwidth()
         return 
     
@@ -162,7 +162,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
         best_iter = None
-        best_bandwidth = self.kernel_obj.bandwidth+0
+        best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification, class_weight=class_weight, 
@@ -188,7 +188,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_acc
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
-                best_bandwidth = self.kernel_obj.bandwidth+0
+                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -200,7 +200,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_metric = test_mse
                 best_alphas = self.weights.cpu().clone()
                 best_iter = i
-                best_bandwidth = self.kernel_obj.bandwidth+0
+                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
                 if self.M is not None:
                     best_M = self.M.cpu().clone()
                     if use_sqrtM:
@@ -234,7 +234,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_test_acc
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
-            best_bandwidth = self.kernel_obj.bandwidth+0
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
@@ -266,7 +266,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
             else:
                 self.sqrtM = None
             self.weights = best_alphas.to(self.device)
-            self.kernel_obj.bandwidth = best_bandwidth
+            if self.kernel_type == 'generic':
+                self.kernel_obj.bandwidth = best_bandwidth
+            else:
+                self.bandwidth = best_bandwidth
 
         self.best_iter = best_iter
         if fit_last_M:
