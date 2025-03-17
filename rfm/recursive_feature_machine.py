@@ -9,8 +9,32 @@ from .utils import matrix_power, get_data_from_loader
 import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
+    """
+    Main object for RFMs with sklearn style interface. Subclasses must implement the kernel and update_M methods. 
+    The subclasses may be either specific kernels (Laplace, Gaussian, GeneralizedLaplace, etc.), in which case the kernel method is automatically derived,
+    or generic kernels (GenericKernel), in which case a Kernel object must be provided. I.e. one can either define:
+
+        from rfm import LaplaceRFM
+        model = LaplaceRFM(bandwidth=1, device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
+
+        or
+
+        from rfm import GenericRFM
+        from rfm.kernels_new import LaplaceKernel
+        model = GenericRFM(kernel=LaplaceKernel(bandwidth=1, exponent=1.2), device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
+    """
 
     def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
+        """
+        device: device to run the model on
+        mem_gb: memory in GB for AGOP
+        diag: if True, Mahalanobis matrix M will be diagonal
+        centering: if True, update_M will center the gradients before taking an outer product
+        reg: regularization for the kernel matrix
+        iters: number of iterations to run
+        p_batch_size: batch size over centers for AGOP computation
+        bandwidth_mode: 'constant' or 'adaptive'
+        """
         super().__init__()
         self.M = None
         self.sqrtM = None
@@ -25,7 +49,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.p_batch_size = p_batch_size
         self.agop_power = 0.5 # power for root of agop
         self.bandwidth_mode = bandwidth_mode
-        self.max_lstsq_size = 70_000
+        self.max_lstsq_size = 70_000 # max number of points to use for direct solve
 
     def kernel(self, x, z):
         raise NotImplementedError("Must implement this method in a subclass")
@@ -136,6 +160,24 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
             solver='solve', fit_last_M=False, prefit_eigenpro=True, 
             **kwargs):
+        """
+        train_data: torch.utils.data.DataLoader or tuple of (X, y)
+        test_data: torch.utils.data.DataLoader or tuple of (X, y)
+        iters: number of iterations to run
+        method: 'lstsq' or 'eigenpro'
+        classification: if True, the model will tune for (and report) accuracy, else just MSE loss
+        verbose: if True, print progress
+        M_batch_size: batch size over samples for AGOP computation
+        class_weight: 'inverse' or None
+        return_best_params: if True, return the best parameters
+        bs: batch size for prediction
+        return_Ms: if True, return the Mahalanobis matrix at each iteration
+        lr_scale: learning rate scale for EigenPro
+        total_points_to_sample: number of points to sample for AGOP computation
+        solver: 'solve' or 'cholesky' or 'lu', used in LSTSQ computation
+        fit_last_M: if True, fit the Mahalanobis matrix one last time after training
+        prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
+        """
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         self.prefit_eigenpro = prefit_eigenpro
