@@ -7,17 +7,6 @@ def float_x(data):
     '''Set data array precision.'''
     return np.float32(data)
 
-def cpu_copy(tensor):
-    """
-    Create a CPU copy of a tensor.
-    :param tensor: Tensor to copy.
-    :return: CPU copy of the tensor.
-    """
-    if tensor.device.type == 'cpu':
-        return tensor.clone()
-    else:
-        return tensor.cpu()
-
 def matrix_power(M, power):
     """
     Compute the power of a matrix.

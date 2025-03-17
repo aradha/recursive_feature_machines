@@ -5,7 +5,7 @@ from torchmetrics.functional.classification import accuracy
 from .kernels_new import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
-from .utils import matrix_power, get_data_from_loader, cpu_copy
+from .utils import matrix_power, get_data_from_loader, self.tensor_copy
 import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
@@ -27,14 +27,14 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
         """
-        device: device to run the model on
-        mem_gb: memory in GB for AGOP
-        diag: if True, Mahalanobis matrix M will be diagonal
-        centering: if True, update_M will center the gradients before taking an outer product
-        reg: regularization for the kernel matrix
-        iters: number of iterations to run
-        p_batch_size: batch size over centers for AGOP computation
-        bandwidth_mode: 'constant' or 'adaptive'
+        :param device: device to run the model on
+        :param mem_gb: memory in GB for AGOP
+        :param diag: if True, Mahalanobis matrix M will be diagonal
+        :param centering: if True, update_M will center the gradients before taking an outer product
+        :param reg: regularization for the kernel matrix
+        :param iters: number of iterations to run
+        :param p_batch_size: batch size over centers for AGOP computation
+        :param bandwidth_mode: 'constant' or 'adaptive'
         """
         super().__init__()
         self.M = None
@@ -65,15 +65,27 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.kernel_obj._reset_adaptive_bandwidth()
         return 
 
+    def tensor_copy(self, tensor):
+        """
+        Create a CPU copy of a tensor.
+        :param tensor: Tensor to copy.
+        :param keep_device: If True, the device of the original tensor is kept.
+        :return: CPU copy of the tensor.
+        """
+        if self.keep_device or tensor.device.type == 'cpu':
+            return tensor.clone()
+        else:
+            return tensor.cpu()
+
     def update_best_params(self, best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, current_metric, current_iter):
         # if classification and accuracy higher, or if regression and mse lower
         if self.classification and current_metric > best_metric:
             best_metric = current_metric
-            best_alphas = cpu_copy(self.weights)
+            best_alphas = self.tensor_copy(self.weights)
             best_iter = current_iter
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
-                best_M = cpu_copy(self.M)
+                best_M = self.tensor_copy(self.M)
                 if self.use_sqrtM:
                     best_sqrtM = matrix_power(self.M, self.agop_power)
             else:
@@ -81,11 +93,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 best_sqrtM = None
         elif not self.classification and current_metric < best_metric:
             best_metric = current_metric
-            best_alphas = cpu_copy(self.weights)
+            best_alphas = self.tensor_copy(self.weights)
             best_iter = current_iter
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
-                best_M = cpu_copy(self.M)
+                best_M = self.tensor_copy(self.M)
                 if self.use_sqrtM:
                     best_sqrtM = matrix_power(self.M, self.agop_power)
             else:
@@ -192,22 +204,22 @@ class RecursiveFeatureMachine(torch.nn.Module):
             solver='solve', fit_last_M=False, prefit_eigenpro=True, 
             **kwargs):
         """
-        train_data: torch.utils.data.DataLoader or tuple of (X, y)
-        test_data: torch.utils.data.DataLoader or tuple of (X, y)
-        iters: number of iterations to run
-        method: 'lstsq' or 'eigenpro'
-        classification: if True, the model will tune for (and report) accuracy, else just MSE loss
-        verbose: if True, print progress
-        M_batch_size: batch size over samples for AGOP computation
-        class_weight: 'inverse' or None
-        return_best_params: if True, return the best parameters
-        bs: batch size for prediction
-        return_Ms: if True, return the Mahalanobis matrix at each iteration
-        lr_scale: learning rate scale for EigenPro
-        total_points_to_sample: number of points to sample for AGOP computation
-        solver: 'solve' or 'cholesky' or 'lu', used in LSTSQ computation
-        fit_last_M: if True, fit the Mahalanobis matrix one last time after training
-        prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
+        :param train_data: torch.utils.data.DataLoader or tuple of (X, y)
+        :param test_data: torch.utils.data.DataLoader or tuple of (X, y)
+        :param iters: number of iterations to run
+        :param method: 'lstsq' or 'eigenpro'
+        :param classification: if True, the model will tune for (and report) accuracy, else just MSE loss
+        :param verbose: if True, print progress
+        :param M_batch_size: batch size over samples for AGOP computation
+        :param class_weight: 'inverse' or None
+        :param return_best_params: if True, return the best parameters
+        :param bs: batch size for prediction
+        :param return_Ms: if True, return the Mahalanobis matrix at each iteration
+        :param lr_scale: learning rate scale for EigenPro
+        :param total_points_to_sample: number of points to sample for AGOP computation
+        :param solver: 'solve' or 'cholesky' or 'lu', used in LSTSQ computation
+        :param fit_last_M: if True, fit the Mahalanobis matrix one last time after training
+        :param prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
         """
                 
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
@@ -231,6 +243,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         else:
             X_train, y_train = train_data
             X_test, y_test = test_data
+
+        self.keep_device = X_train.shape[1] > X_train.shape[0] # keep previous Ms on GPU if more features than samples
 
         mses, Ms = [], []
         best_alphas, best_M, best_sqrtM = None, None, None
@@ -305,7 +319,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if fit_last_M:
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=self.use_sqrtM, 
                         total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
-            Ms.append(cpu_copy(self.M))
+            Ms.append(self.tensor_copy(self.M))
 
         if return_Ms and fit_last_M:
             self.agop_best_model = Ms[best_iter]
