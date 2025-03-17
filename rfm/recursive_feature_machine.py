@@ -5,7 +5,7 @@ from torchmetrics.functional.classification import accuracy
 from .kernels_new import Kernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
-from .utils import matrix_power, get_data_from_loader
+from .utils import matrix_power, get_data_from_loader, cpu_copy
 import time
 
 class RecursiveFeatureMachine(torch.nn.Module):
@@ -62,7 +62,36 @@ class RecursiveFeatureMachine(torch.nn.Module):
             raise ValueError("Cannot reset bandwidth for non-generic kernels, choose constant bandwidth mode")
         self.kernel_obj._reset_adaptive_bandwidth()
         return 
-    
+
+    def update_best_params(self, best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, current_metric, current_iter):
+        # if classification and accuracy higher, or if regression and mse lower
+        if self.classification and current_metric > best_metric:
+            best_metric = current_metric
+            best_alphas = cpu_copy(self.weights)
+            best_iter = current_iter
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
+            if self.M is not None:
+                best_M = cpu_copy(self.M)
+                if use_sqrtM:
+                    best_sqrtM = matrix_power(self.M, self.agop_power)
+            else:
+                best_M = None
+                best_sqrtM = None
+        elif not classification and current_metric < best_metric:
+            best_metric = current_metric
+            best_alphas = cpu_copy(self.weights)
+            best_iter = current_iter
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
+            if self.M is not None:
+                best_M = cpu_copy(self.M)
+                if use_sqrtM:
+                    best_sqrtM = matrix_power(self.M, self.agop_power)
+            else:
+                best_M = None
+                best_sqrtM = None
+
+        return best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth
+        
     def fit_predictor(self, centers, targets, classification=False, 
                       class_weight=None, bs=None, lr_scale=1, 
                       verbose=True, solver='solve', **kwargs):
@@ -226,30 +255,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
 
             # if classification and accuracy higher, or if regression and mse lower
-            if return_best_params and classification and test_acc > best_metric:
-                best_metric = test_acc
-                best_alphas = self.weights.cpu().clone()
-                best_iter = i
-                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-                if self.M is not None:
-                    best_M = self.M.cpu().clone()
-                    if use_sqrtM:
-                        best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
-                else:
-                    best_M = None
-                    best_sqrtM = None
-            elif return_best_params and not classification and test_mse < best_metric:
-                best_metric = test_mse
-                best_alphas = self.weights.cpu().clone()
-                best_iter = i
-                best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-                if self.M is not None:
-                    best_M = self.M.cpu().clone()
-                    if use_sqrtM:
-                        best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
-                else:
-                    best_M = None
-                    best_sqrtM = None
+            if return_best_params:
+                best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth = self.update_best_params(best_metric, best_alphas, 
+                                                                                                                best_M, best_sqrtM, 
+                                                                                                                best_iter, best_bandwidth, 
+                                                                                                                test_acc if classification else test_mse, i)
 
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, 
@@ -271,38 +281,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
 
-        # if classification and accuracy higher, or if regression and mse lower
-        if return_best_params and classification and final_test_acc > best_metric:
-            best_metric = final_test_acc
-            best_alphas = self.weights.cpu().clone()
-            best_iter = iters
-            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-            if self.M is not None:
-                best_M = self.M.cpu().clone()
-                if use_sqrtM:
-                    best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
-            else:
-                best_M = None
-                best_sqrtM = None
-        elif return_best_params and not classification and final_mse < best_metric:
-            best_metric = final_mse
-            best_alphas = self.weights.cpu().clone()
-            best_iter = iters
-            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-            if self.M is not None:
-                best_M = self.M.cpu().clone()
-                if use_sqrtM:
-                    best_sqrtM = matrix_power(self.M, self.agop_power).cpu().clone()
-            else:
-                best_M = None
-                best_sqrtM = None
+        if return_best_params:
+            self.update_best_params(best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, 
+                                    final_test_acc if classification else final_mse, iters)
 
         if return_best_params:
             print(f"Returning best parameters with value: {best_metric}")
-            if best_M is not None:
-                self.M = best_M.to(self.device)
-            else:
-                self.M = None   
+            self.M = None if best_M is None else best_M.to(self.device)
             if use_sqrtM and best_sqrtM is not None:
                 self.sqrtM = best_sqrtM.to(self.device)
             else:
@@ -315,8 +300,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.best_iter = best_iter
         if fit_last_M:
-            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
-            Ms.append(self.M.cpu().clone())
+            self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, use_sqrtM=use_sqrtM, 
+                        total_points_to_sample=total_points_to_sample, fit_last_M=fit_last_M, **kwargs)
+            Ms.append(cpu_copy(self.M))
 
         if return_Ms and fit_last_M:
             self.agop_best_model = Ms[best_iter]
