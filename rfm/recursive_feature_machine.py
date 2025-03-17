@@ -288,7 +288,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_metric = final_mse
             best_alphas = self.weights.cpu().clone()
             best_iter = iters
-            best_bandwidth = self.kernel_obj.bandwidth+0
+            best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.M.cpu().clone()
                 if use_sqrtM:
