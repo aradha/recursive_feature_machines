@@ -13,7 +13,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     Main object for RFMs with sklearn style interface. Subclasses must implement the kernel and update_M methods. 
     The subclasses may be either specific kernels (Laplace, Gaussian, GeneralizedLaplace, etc.), in which case the kernel method is automatically derived,
     or generic kernels (GenericKernel), in which case a Kernel object must be provided. I.e. one can either define:
-
+    ```python
         from rfm import LaplaceRFM
         model = LaplaceRFM(bandwidth=1, device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
 
@@ -22,6 +22,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         from rfm import GenericRFM
         from rfm.kernels_new import LaplaceKernel
         model = GenericRFM(kernel=LaplaceKernel(bandwidth=1, exponent=1.2), device='cpu', reg=1e-3, iters=3, bandwidth_mode='constant')
+    ```
     """
 
     def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
