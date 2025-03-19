@@ -32,12 +32,12 @@ class Kernel:
             else:
                 raise ValueError(f'm_matrix should have one or two dimensions, but got shape {mat.shape}')
         return x
-    
+
     def _reset_adaptive_bandwidth(self):
         self.is_adaptive_bandwidth = False
         return
 
-    def _adapt_bandwidth(self, kernel_mat: torch.Tensor, adapt_mode='median') -> float:
+    def _adapt_bandwidth(self, kernel_mat: torch.Tensor, adapt_mode='median'):
         n = kernel_mat.shape[0]
         mask = ~torch.eye(n, dtype=bool, device=kernel_mat.device)
         # Get median of off-diagonal elements only
@@ -48,9 +48,10 @@ class Kernel:
         else:
             raise ValueError(f"Invalid adapt_mode: {adapt_mode}")
         self.bandwidth = self.base_bandwidth * bandwidth_multiplier.item()
+        print(f'{self.bandwidth=}')
         self.is_adaptive_bandwidth = True
         return
-    
+
     def get_kernel_matrix(self, x: torch.Tensor, z: torch.Tensor,
                           mat: Optional[torch.Tensor] = None) -> torch.Tensor:
         """
@@ -120,7 +121,7 @@ class LaplaceKernel(Kernel):
 
         # print("Adapted bandwidth: ", self.bandwidth)
 
-        kernel_mat.mul_(-1./(self.bandwidth**self.exponent))
+        kernel_mat.mul_(-1. / (self.bandwidth ** self.exponent))
         kernel_mat.exp_()
         return kernel_mat
 
@@ -139,7 +140,7 @@ class LaplaceKernel(Kernel):
         kernel_mat.exp_()
 
         # now compute M
-        mask = dists>=self.eps
+        mask = dists >= self.eps
         dists.clamp_(min=self.eps)
         dists.pow_(self.exponent - 2)
         kernel_mat.mul_(dists)
@@ -171,6 +172,7 @@ class ProductLaplaceKernel(Kernel):
         self.bandwidth_mode = bandwidth_mode
         self.base_bandwidth = bandwidth
         self.bandwidth = bandwidth
+        self.base_bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
 
@@ -190,7 +192,7 @@ class ProductLaplaceKernel(Kernel):
             kernel_mat[i:i+sample_batch_size, :] = torch.cdist(x[i:i+sample_batch_size, :], z, p=self.exponent)
             kernel_mat[i:i+sample_batch_size, :].clamp_(min=0)
             if not self.is_adaptive_bandwidth:
-                self._adapt_bandwidth(kernel_mat[i:i+sample_batch_size, :])            
+                self._adapt_bandwidth(kernel_mat[i:i+sample_batch_size, :])
             kernel_mat[i:i+sample_batch_size, :].pow_(self.exponent)
             kernel_mat[i:i+sample_batch_size, :].mul_(-1./(self.bandwidth**self.exponent))
             kernel_mat[i:i+sample_batch_size, :].exp_()
@@ -223,6 +225,110 @@ class ProductLaplaceKernel(Kernel):
         # return torch.stack([compute_grad(i) for i in range(coefs.shape[0])], dim=0)
 
 
+class LpqLaplaceKernel(Kernel):
+    def __init__(self, bandwidth: float, p: float, q: float, eps: float = 1e-10, bandwidth_mode: str = 'constant'):
+        super().__init__()
+        assert bandwidth > 0
+        assert 0 < p <= 2
+        assert 0 < q <= p
+        assert eps > 0
+        self.bandwidth = bandwidth
+        self.base_bandwidth = bandwidth
+        self.p = p
+        self.q = q
+        self.eps = eps  # this one is for numerical stability
+        self.bandwidth_mode = bandwidth_mode
+
+    def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        if self.p == 2:
+            # faster implementation
+            kernel = LaplaceKernel(bandwidth=self.bandwidth, exponent=self.q, eps=self.eps, bandwidth_mode=self.bandwidth_mode)
+            return kernel.get_kernel_matrix(x, z)
+
+        kernel_mat = torch.cdist(x, z, p=self.p)
+        kernel_mat.clamp_(min=0)
+        if not self.is_adaptive_bandwidth:
+            self._adapt_bandwidth(kernel_mat)
+        kernel_mat.pow_(self.q)
+        kernel_mat.mul_(-1. / (self.bandwidth ** self.q))
+        kernel_mat.exp_()
+        return kernel_mat
+
+    def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+        if self.p == 2:
+            # use faster implementation
+            kernel = LaplaceKernel(bandwidth=self.bandwidth, exponent=self.q, eps=self.eps,
+                                   bandwidth_mode=self.bandwidth_mode)
+            return kernel.get_function_grads(x, z, coefs)
+
+        def forward_func(z):
+            dists = torch.cdist(x, z, p=self.p) ** self.q
+            factor = -((1. / self.bandwidth) ** self.q)
+            # this is \sum_j f(z_j), so the derivative wrt z will be jacobian(f)(z_j) for all z_j
+            return coefs @ torch.exp(factor * (dists * (dists >= self.eps))).sum(dim=1)
+
+        return torch.func.jacrev(forward_func)(z)
+
+        # return get_laplacian_gen_grad(z, x, sqrtM=None, v=self.exponent, L=self.bandwidth, alphas=coefs.t(), eps=self.eps).transpose(0, 1)
+
+        # def compute_grad(out_idx: int):
+        #     z_cl = z.clone()
+        #     z_cl.requires_grad = True
+        #     dists = torch.cdist(x, z_cl, p=self.exponent) ** self.exponent
+        #     # masking
+        #     mask = dists >= self.eps
+        #
+        #     factor = -((1./self.bandwidth)**self.exponent)
+        #
+        #     # this is \sum_j f(z_j), so the derivative wrt z will be \nabla f(z_j) for all z_j
+        #     sum_f = torch.dot(coefs[out_idx, :], torch.exp(factor * (dists * mask)).sum(dim=1))
+        #     sum_f.backward()
+        #     return z_cl.grad
+        # return torch.stack([compute_grad(i) for i in range(coefs.shape[0])], dim=0)
+
+
+class SumPowerLaplaceKernel(Kernel):
+    def __init__(self, bandwidth: float, exponent: float, eps: float = 1e-10, const_mix: float = 0.0,
+                 power: int = 2,
+                 bandwidth_mode: str = 'constant'):
+        super().__init__()
+        assert bandwidth > 0
+        assert exponent > 0
+        assert eps > 0
+        assert 0 <= const_mix < 1
+        assert bandwidth_mode == 'constant', 'Adaptive bandwidth currently not supported'
+        self.bandwidth = bandwidth
+        self.base_bandwidth = bandwidth
+        self.exponent = exponent
+        self.const_mix = const_mix
+        self.power = power
+        self.eps = eps  # this one is for numerical stability
+        self.bandwidth_mode = bandwidth_mode
+
+    def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
+        diffs = x[:, None, :] - z[None, :, :]
+        diffs.abs_()
+        diffs.pow_(self.exponent)
+        diffs.mul_(-1. / (self.bandwidth ** self.exponent))
+        diffs.exp_()
+        sum = diffs.sum(dim=-1)
+        sum.mul_((1.0 - self.const_mix) / x.shape[1])  # normalize so the max sum is 1
+        sum.add_(self.const_mix)
+        sum.pow_(self.power)
+        return sum
+
+    def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
+        def forward_func(z):
+            # compute \sum_j f(z_j)
+            diffs = torch.abs(x[:, None, :] - z[None, :, :]).pow(self.exponent)
+            diffs = torch.exp((-1. / (self.bandwidth ** self.exponent)) * diffs)
+            sum = (1.0 - self.const_mix) * (diffs.sum(dim=-1) / x.shape[-1]) + self.const_mix
+            sum = sum ** self.power
+            sum = sum.sum(dim=-1)  # sum over z
+            return coefs @ sum
+
+        return torch.func.jacrev(forward_func)(z)
+
 
 if __name__ == '__main__':
     # kernel = LaplaceKernel(bandwidth=2.0, exponent=1.0)
@@ -235,7 +341,6 @@ if __name__ == '__main__':
     kernel.get_agop(x, x, coefs)
 
     print('here')
-
 
     import matplotlib.pyplot as plt
 

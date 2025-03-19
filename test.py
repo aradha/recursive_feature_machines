@@ -1,14 +1,16 @@
 import numpy as np
 import torch
 from rfm import LaplaceRFM, GeneralizedLaplaceRFM
-from rfm.kernels_new import LaplaceKernel, ProductLaplaceKernel
+from rfm.generic_kernels import LaplaceKernel, ProductLaplaceKernel, LpqLaplaceKernel
+
+from rfm.generic_kernels import SumPowerLaplaceKernel
 from rfm.recursive_feature_machine import GenericRFM
 import time
 
 np.random.seed(0)
 torch.manual_seed(0)
 
-M_batch_size = 2048
+M_batch_size = 256
 
 def fstar(X):
     return torch.cat([
@@ -18,12 +20,14 @@ def fstar(X):
         ).float()
 
 # model = LaplaceRFM(bandwidth=1., diag=True)
-# model = GenericRFM(LaplaceKernel(bandwidth=1., exponent=1.0), diag=True)
+# model = GenericRFM(LaplaceKernel(bandwidth=50., exponent=1.0), diag=True, reg=1e-4)
+model = GenericRFM(LpqLaplaceKernel(bandwidth=50., p=1.5, q=0.7), diag=True, reg=1e-4)
 # model = GeneralizedLaplaceRFM(bandwidth=50., exponent=1.0, diag=True)
-model = GenericRFM(ProductLaplaceKernel(bandwidth=50., exponent=1.0), diag=True)
+# model = GenericRFM(ProductLaplaceKernel(bandwidth=50., exponent=1.0), diag=True, reg=1e-4)
+# model = GenericRFM(SumPowerLaplaceKernel(bandwidth=10., exponent=1.0, power=5, const_mix=0), diag=True, reg=1e-4)
 
 
-n = 4000 # samples
+n = 100 # samples
 d = 100  # dimension
 c = 2    # classes
 
