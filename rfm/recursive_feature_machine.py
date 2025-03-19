@@ -149,6 +149,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         kernel_matrix = self.kernel(centers, centers)    
 
+        if self.verbose:
+            print("Training kernel matrix computed")
 
 
         if class_weight == 'inverse':
@@ -167,9 +169,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
             kernel_matrix = W@kernel_matrix
             targets = W@targets
 
+        if self.verbose:
+            print("Regularizing kernel matrix")
         if self.reg > 0:
             kernel_matrix.diagonal().add_(self.reg)
         
+        if self.verbose:
+            print("Solving kernel matrix")
         if solver == 'solve':
             out = torch.linalg.solve(kernel_matrix, targets)
         elif solver == 'cholesky':
@@ -200,7 +206,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     def fit(self, train_data, test_data, iters=None, method='lstsq', 
             classification=True, verbose=True, M_batch_size=None, 
             class_weight=None, return_best_params=False, bs=None, 
-            return_Ms=False, lr_scale=1, total_points_to_sample=50000, 
+            return_Ms=False, lr_scale=1, total_points_to_sample=20000, 
             solver='solve', fit_last_M=False, prefit_eigenpro=True, 
             **kwargs):
         """
@@ -221,7 +227,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         :param fit_last_M: if True, fit the Mahalanobis matrix one last time after training
         :param prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
         """
-                
+        self.verbose = verbose
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         self.prefit_eigenpro = prefit_eigenpro
         self.use_sqrtM = self.kernel_type in ['laplacian_gen', 'generic']
@@ -243,6 +249,11 @@ class RecursiveFeatureMachine(torch.nn.Module):
         else:
             X_train, y_train = train_data
             X_test, y_test = test_data
+
+        X_train = X_train.to(self.device)
+        X_test = X_test.to(self.device)
+        y_train = y_train.to(self.device)
+        y_test = y_test.to(self.device)
 
         self.keep_device = X_train.shape[1] > X_train.shape[0] # keep previous Ms on GPU if more features than samples
 
@@ -329,27 +340,17 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
         return final_mse
     
-    def _compute_optimal_M_batch(self, p, c, d, scalar_size=4):
+    def _compute_optimal_M_batch(self, n, c, d, scalar_size=4, mem_constant=2):
         """Computes the optimal batch size for AGOP."""
-        THREADS_PER_BLOCK = 512 # pytorch default
-        def tensor_mem_usage(numels):
-            """Calculates memory footprint of tensor based on number of elements."""
-            return np.ceil(scalar_size * numels / THREADS_PER_BLOCK) * THREADS_PER_BLOCK
-
-        def max_tensor_size(mem):
-            """Calculates maximum possible tensor given memory budget (bytes)."""
-            return int(np.floor(mem / THREADS_PER_BLOCK) * (THREADS_PER_BLOCK / scalar_size))
-
-        curr_mem_use = torch.cuda.memory_allocated() # in bytes
-        M_mem = tensor_mem_usage(d if self.diag else d**2)
-        centers_mem = tensor_mem_usage(p * d)
-        mem_available = (self.mem_gb *1024**3) - curr_mem_use - (M_mem + centers_mem) * scalar_size
-        M_batch_size = max_tensor_size((mem_available - 3*tensor_mem_usage(p) - tensor_mem_usage(p*c*d)) / (2*scalar_size*(1+p)))
-
+        total_memory_possible = torch.cuda.get_device_properties(self.device).total_memory
+        curr_mem_use = torch.cuda.memory_allocated()
+        available_memory = total_memory_possible - curr_mem_use
+        M_batch_size = int(available_memory / (mem_constant*n*c*d*scalar_size))
+        print("Optimal M batch size: ", M_batch_size)
         return M_batch_size
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
-              verbose=True, total_points_to_sample=50000, use_sqrtM=False, **kwargs):
+              verbose=True, total_points_to_sample=20000, use_sqrtM=False, **kwargs):
         """Applies AGOP to update the Mahalanobis matrix M."""
         
         n, d = samples.shape
@@ -358,9 +359,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         if M_batch_size is None: 
             BYTES_PER_SCALAR = self.M.element_size()
-            p, d = samples.shape
             c = labels.shape[-1]
-            M_batch_size = self._compute_optimal_M_batch(p, c, d, scalar_size=BYTES_PER_SCALAR)
+            M_batch_size = self._compute_optimal_M_batch(n, c, d, scalar_size=BYTES_PER_SCALAR)
 
             if verbose:
                 print(f"Using batch size of {M_batch_size}")
@@ -397,11 +397,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if bs is None:
             preds = self.predict(samples.to(self.device)).to(targets.device)
         else:
-            all_preds = []
-            for batch in samples.split(bs):
-                preds = self.predict(batch.to(self.device)).to(targets.device)
-                all_preds.append(preds)
-            preds = torch.cat(all_preds, dim=0).to(targets.device)
+            preds = torch.zeros(samples.shape[0], targets.shape[1], device=targets.device)
+            for i in range(0, samples.shape[0], bs):
+                preds[i:i+bs] = self.predict(samples[i:i+bs].to(self.device)).to(targets.device)
         if metric=='accuracy':
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(targets))
