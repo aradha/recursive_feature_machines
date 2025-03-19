@@ -1,7 +1,7 @@
 from typing import Optional
 
 import torch
-
+from tqdm import tqdm
 from rfm.kernels import get_laplacian_gen_grad
 
 
@@ -105,11 +105,11 @@ class LaplaceKernel(Kernel):
         assert bandwidth > 0
         assert exponent > 0
         assert eps > 0
+        self.bandwidth_mode = bandwidth_mode
         self.base_bandwidth = bandwidth
         self.bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
-        self.bandwidth_mode = bandwidth_mode
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
         kernel_mat = torch.cdist(x, z)
@@ -169,20 +169,33 @@ class ProductLaplaceKernel(Kernel):
         assert bandwidth > 0
         assert exponent > 0
         assert eps > 0
+        self.bandwidth_mode = bandwidth_mode
+        self.base_bandwidth = bandwidth
         self.bandwidth = bandwidth
         self.base_bandwidth = bandwidth
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
-        self.bandwidth_mode = bandwidth_mode
+
+    def get_sample_batch_size(self, n: int, d: int, scalar_size: int = 4, mem_constant: float = 15) -> int:
+        total_memory_possible = torch.cuda.get_device_properties(torch.device('cuda')).total_memory
+        curr_mem_use = torch.cuda.memory_allocated()
+        available_memory = total_memory_possible - curr_mem_use
+        return int(available_memory / (mem_constant*n*scalar_size))
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor) -> torch.Tensor:
-        kernel_mat = torch.cdist(x, z, p=self.exponent)
-        kernel_mat.clamp_(min=0)
-        if not self.is_adaptive_bandwidth:
-            self._adapt_bandwidth(kernel_mat)
-        kernel_mat.pow_(self.exponent)
-        kernel_mat.mul_(-1. / (self.bandwidth ** self.exponent))
-        kernel_mat.exp_()
+        scalar_size = x.element_size()
+        sample_batch_size = self.get_sample_batch_size(z.shape[0], z.shape[1], scalar_size=scalar_size)
+        # print("Sample batch size: ", sample_batch_size)
+
+        kernel_mat = torch.zeros(x.shape[0], z.shape[0], device=x.device)
+        for idx, i in enumerate(range(0, x.shape[0], sample_batch_size)):
+            kernel_mat[i:i+sample_batch_size, :] = torch.cdist(x[i:i+sample_batch_size, :], z, p=self.exponent)
+            kernel_mat[i:i+sample_batch_size, :].clamp_(min=0)
+            if not self.is_adaptive_bandwidth:
+                self._adapt_bandwidth(kernel_mat[i:i+sample_batch_size, :])
+            kernel_mat[i:i+sample_batch_size, :].pow_(self.exponent)
+            kernel_mat[i:i+sample_batch_size, :].mul_(-1./(self.bandwidth**self.exponent))
+            kernel_mat[i:i+sample_batch_size, :].exp_()
         return kernel_mat
 
     def _get_function_grad_impl(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor) -> torch.Tensor:
