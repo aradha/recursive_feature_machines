@@ -283,6 +283,7 @@ class SumPowerLaplaceKernel(Kernel):
         assert exponent > 0
         assert eps > 0
         assert 0 <= const_mix < 1
+        assert bandwidth_mode == 'constant', 'Adaptive bandwidth currently not supported'
         self.bandwidth = bandwidth
         self.base_bandwidth = bandwidth
         self.exponent = exponent
