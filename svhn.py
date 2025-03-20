@@ -3,7 +3,7 @@ import torch
 import torchvision
 import torchvision.transforms as transforms
 from rfm import LaplaceRFM, GeneralizedLaplaceRFM, GenericRFM
-from rfm.kernels_new import LaplaceKernel, ProductLaplaceKernel
+from rfm.generic_kernels import LaplaceKernel, ProductLaplaceKernel
 import gc
 
 def pre_process(torchset, n_samples, num_classes=10):
@@ -33,8 +33,8 @@ testset0 = torchvision.datasets.SVHN(root=data_path,
                                     transform=transform,
                                     download=True)
 
-trainset = pre_process(trainset0, n_samples=5000, num_classes=10)
-testset = pre_process(testset0, n_samples=5000, num_classes=10)
+trainset = pre_process(trainset0, n_samples=70000, num_classes=10)
+testset = pre_process(testset0, n_samples=1000, num_classes=10)
 
 X_train = []
 y_train = []
@@ -56,7 +56,7 @@ print('train', X_train.shape, y_train.shape)
 print('test', X_test.shape, y_test.shape)
 
 print("Running GenericRFM-Laplace")
-model = GenericRFM(kernel=LaplaceKernel(bandwidth=1, exponent=1.2), device='cuda', reg=1e-3, iters=3, bandwidth_mode='adaptive')  
+model = GenericRFM(kernel=LaplaceKernel(bandwidth=10, exponent=1.), device='cuda', reg=1e-3, iters=3, bandwidth_mode='constant')  
 # model = GeneralizedLaplaceRFM(device='cuda', reg=1e-5, bandwidth=10, iters=3, diag=True)   
 model.fit((X_train, y_train), 
           (X_test, y_test), 

@@ -25,7 +25,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
     ```
     """
 
-    def __init__(self, device=torch.device('cpu'), mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
+    def __init__(self, device=None, mem_gb=8, diag=False, centering=False, reg=1e-3, iters=5, p_batch_size=None, bandwidth_mode='constant'):
         """
         :param device: device to run the model on
         :param mem_gb: memory in GB for AGOP
@@ -43,7 +43,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         self.model = None
         self.diag = diag # if True, Mahalanobis matrix M will be diagonal
         self.centering = centering # if True, update_M will center the gradients before taking an outer product
-        self.device = device
+        self.device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
         self.mem_gb = mem_gb
         self.reg = reg # only used when fit with direct solve
         self.iters = iters
@@ -107,8 +107,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth
         
     def fit_predictor(self, centers, targets, classification=False, 
-                      class_weight=None, bs=None, lr_scale=1, 
-                      verbose=True, solver='solve', **kwargs):
+                      bs=None, lr_scale=1, verbose=True, solver='solve', **kwargs):
         
         if self.bandwidth_mode == 'adaptive':
             # adaptive bandwidth will be reset on next kernel computation
@@ -125,7 +124,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.prefit_eigenpro:
                 random_indices = torch.randperm(centers.shape[0])[:self.max_lstsq_size]
                 start = time.time()
-                sub_weights = self.fit_predictor_lstsq(centers[random_indices], targets[random_indices], class_weight=class_weight, solver=solver)
+                sub_weights = self.fit_predictor_lstsq(centers[random_indices], targets[random_indices], solver=solver)
                 end = time.time()
                 print(f"Time taken to prefit Eigenpro with {self.max_lstsq_size} points: {end-start} seconds")
                 initial_weights = torch.zeros_like(targets)
@@ -138,9 +137,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                                        initial_weights=initial_weights,
                                                        **kwargs)
         else:
-            self.weights = self.fit_predictor_lstsq(centers, targets, class_weight=class_weight, solver=solver)
+            self.weights = self.fit_predictor_lstsq(centers, targets, solver=solver)
 
-    def fit_predictor_lstsq(self, centers, targets, class_weight=None, solver='solve'):
+    def fit_predictor_lstsq(self, centers, targets, solver='solve'):
         assert(len(centers)==len(targets))
 
         if centers.device != self.device:
@@ -151,23 +150,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         if self.verbose:
             print("Training kernel matrix computed")
-
-
-        if class_weight == 'inverse':
-            flat_targets = targets.flatten().long()
-            class_weights = {
-                0: len(flat_targets) / (2 * (flat_targets == 0).sum()),
-                1: len(flat_targets) / (2 * (flat_targets == 1).sum())
-            }
-
-            sample_weights = torch.ones_like(targets, dtype=kernel_matrix.dtype).flatten()
-            sample_weights[flat_targets==0] = class_weights[0]
-            sample_weights[flat_targets==1] = class_weights[1]
-            sample_weights = sample_weights.to(device=self.device, dtype=kernel_matrix.dtype)
-            
-            W = torch.diag(sample_weights)
-            kernel_matrix = W@kernel_matrix
-            targets = W@targets
 
         if self.verbose:
             print("Regularizing kernel matrix")
@@ -205,7 +187,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
     def fit(self, train_data, test_data, iters=None, method='lstsq', 
             classification=True, verbose=True, M_batch_size=None, 
-            class_weight=None, return_best_params=False, bs=None, 
+            return_best_params=False, bs=None, 
             return_Ms=False, lr_scale=1, total_points_to_sample=20000, 
             solver='solve', fit_last_M=False, prefit_eigenpro=True, 
             **kwargs):
@@ -217,7 +199,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         :param classification: if True, the model will tune for (and report) accuracy, else just MSE loss
         :param verbose: if True, print progress
         :param M_batch_size: batch size over samples for AGOP computation
-        :param class_weight: 'inverse' or None
         :param return_best_params: if True, return the best parameters
         :param bs: batch size for prediction
         :param return_Ms: if True, return the Mahalanobis matrix at each iteration
@@ -236,12 +217,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if iters is None:
             iters = self.iters
 
-        if class_weight is not None and self.fit_using_eigenpro:
-            raise ValueError("Class weights are not supported for EigenPro")
-
-        if verbose and class_weight == 'inverse':
-            print("Weighting samples by inverse class frequency")
-        
         if isinstance(train_data, torch.utils.data.DataLoader):
             print("Loaders provided")
             X_train, y_train = get_data_from_loader(train_data)
@@ -264,8 +239,10 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
         for i in range(iters):
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
-                               classification=classification, class_weight=class_weight, 
-                               bs=bs, lr_scale=lr_scale, verbose=verbose, solver=solver, **kwargs)
+                               classification=classification,
+                               bs=bs, lr_scale=lr_scale, 
+                               verbose=verbose, solver=solver, 
+                               **kwargs)
             
             if classification:
                 test_acc = self.score(X_test, y_test, bs, metric='accuracy')
@@ -292,14 +269,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=self.use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
-                        
             if return_Ms:
-                Ms.append(self.M.cpu()+0)
+                Ms.append(self.tensor_copy(self.M))
                 mses.append(test_mse)
 
         self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
-                           class_weight=class_weight, verbose=verbose, 
-                           classification=classification, bs=bs, **kwargs)
+                           verbose=verbose, classification=classification, 
+                           bs=bs, **kwargs)
         final_mse = self.score(X_test, y_test, bs=bs, metric='mse')
         
         if verbose:
@@ -355,7 +331,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         
         n, d = samples.shape
         M = torch.zeros_like(self.M) if self.M is not None else (
-            torch.zeros(d, dtype=samples.dtype) if self.diag else torch.zeros(d, d, dtype=samples.dtype))
+            torch.zeros(d, dtype=samples.dtype, device=self.device) 
+            if self.diag else torch.zeros(d, d, dtype=samples.dtype, device=self.device))
         
         if M_batch_size is None: 
             BYTES_PER_SCALAR = self.M.element_size()
@@ -382,7 +359,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 M.add_(self.update_M(samples[bids], p_batch_size))
             
         self.M = M / (M.max() + 1e-8)
-        # print(f'{self.M=}')
         if use_sqrtM:
             self.sqrtM = matrix_power(self.M, self.agop_power)
         del M
@@ -433,6 +409,9 @@ class GenericRFM(RecursiveFeatureMachine):
         return self.kernel_obj.get_kernel_matrix(x, z, self.sqrtM)
 
     def update_M(self, samples, p_batch_size):
+        samples = samples.to(self.device)
+        self.centers = self.centers.to(self.device)
+
         if self.M is None:
             if self.diag:
                 self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
@@ -441,8 +420,6 @@ class GenericRFM(RecursiveFeatureMachine):
                 self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
                 self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
 
-        samples = samples.to(self.device)
-        self.centers = self.centers.to(self.device)
         agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
         agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM)
         return agop
@@ -458,6 +435,7 @@ class LaplaceRFM(RecursiveFeatureMachine):
         return laplacian_M(x, z, self.M, self.bandwidth)
     
     def update_M(self, samples, p_batch_size):
+        print("updating M here")
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
         """Performs a batched update of M."""
