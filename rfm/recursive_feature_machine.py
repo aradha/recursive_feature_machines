@@ -336,7 +336,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Using batch size of {M_batch_size}")
         
-        # batches = torch.randperm(n).split(M_batch_size)
         batches = torch.arange(n).split(M_batch_size)
 
         num_batches = 1 + total_points_to_sample//M_batch_size
@@ -346,7 +345,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         if verbose:
             for i, bids in tenumerate(batches):
-                # print("bids", bids)
                 torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
         else:
