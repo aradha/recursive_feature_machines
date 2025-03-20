@@ -2,7 +2,6 @@ from typing import Optional
 
 import torch
 from tqdm import tqdm
-from rfm.kernels import get_laplacian_gen_grad
 
 
 class Kernel:
@@ -48,7 +47,6 @@ class Kernel:
         else:
             raise ValueError(f"Invalid adapt_mode: {adapt_mode}")
         self.bandwidth = self.base_bandwidth * bandwidth_multiplier.item()
-        print(f'{self.bandwidth=}')
         self.is_adaptive_bandwidth = True
         return
 

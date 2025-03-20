@@ -352,7 +352,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
                 torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
         
-        self.M = M / M.max()
+        self.M = M / (M.max() + 1e-30)
         if use_sqrtM:
             self.sqrtM = matrix_power(self.M, self.agop_power)
         del M
