@@ -16,7 +16,6 @@ def matrix_power(M, power):
     """
     if len(M.shape) == 2:
         assert M.shape[0] == M.shape[1], "Matrix must be square"
-        # original_device = M.device
 
         # gpu square root
         S, U = torch.linalg.eigh(M)

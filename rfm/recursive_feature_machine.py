@@ -2,7 +2,7 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .generic_kernels import Kernel
+from .generic_kernels import Kernel, LaplaceKernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 from .utils import matrix_power, get_data_from_loader
@@ -148,16 +148,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         kernel_matrix = self.kernel(centers, centers)    
 
-        if self.verbose:
-            print("Training kernel matrix computed")
-
-        if self.verbose:
-            print("Regularizing kernel matrix")
         if self.reg > 0:
             kernel_matrix.diagonal().add_(self.reg)
         
-        if self.verbose:
-            print("Solving kernel matrix")
         if solver == 'solve':
             out = torch.linalg.solve(kernel_matrix, targets)
         elif solver == 'cholesky':
@@ -269,6 +262,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=self.use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
+            
             if return_Ms:
                 Ms.append(self.tensor_copy(self.M))
                 mses.append(test_mse)
@@ -342,7 +336,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if verbose:
                 print(f"Using batch size of {M_batch_size}")
         
-        batches = torch.randperm(n).split(M_batch_size)
+        # batches = torch.randperm(n).split(M_batch_size)
+        batches = torch.arange(n).split(M_batch_size)
 
         num_batches = 1 + total_points_to_sample//M_batch_size
         batches = batches[:num_batches]
@@ -351,14 +346,15 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         if verbose:
             for i, bids in tenumerate(batches):
+                # print("bids", bids)
                 torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
         else:
             for bids in batches:
                 torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
-            
-        self.M = M / (M.max() + 1e-8)
+        
+        self.M = M / M.max()
         if use_sqrtM:
             self.sqrtM = matrix_power(self.M, self.agop_power)
         del M
@@ -435,9 +431,10 @@ class LaplaceRFM(RecursiveFeatureMachine):
         return laplacian_M(x, z, self.M, self.bandwidth)
     
     def update_M(self, samples, p_batch_size):
-        print("updating M here")
         samples = samples.to(self.device)
         self.centers = self.centers.to(self.device)
+        
+        # return adit_rfm.get_grads_2(self.centers, samples, self.weights.T, self.bandwidth, self.M)
         """Performs a batched update of M."""
         K = self.kernel(samples, self.centers)
         if p_batch_size is None: 
