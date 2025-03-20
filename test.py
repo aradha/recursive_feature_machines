@@ -64,4 +64,3 @@ model.fit(
 
 print(f'Generic time: {time.time()-start_time:g} s')
 
-
