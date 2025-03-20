@@ -2,7 +2,6 @@ import numpy as np
 import torch
 from rfm import LaplaceRFM, GeneralizedLaplaceRFM
 from rfm.generic_kernels import LaplaceKernel, ProductLaplaceKernel, LpqLaplaceKernel
-from adit_rfm import rfm
 from rfm.generic_kernels import SumPowerLaplaceKernel
 from rfm.recursive_feature_machine import GenericRFM
 import time
@@ -66,6 +65,6 @@ model.fit(
 
 print(f'Generic time: {time.time()-start_time:g} s')
 
-M, err = rfm((X_train, y_train), (X_test, y_test), num_iters=iters)
-print(f'RFM time: {time.time()-start_time:g} s')
-print(f'RFM err: {err}')
+# M, err = rfm((X_train, y_train), (X_test, y_test), num_iters=iters)
+# print(f'RFM time: {time.time()-start_time:g} s')
+# print(f'RFM err: {err}')
