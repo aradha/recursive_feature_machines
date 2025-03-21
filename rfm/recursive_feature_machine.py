@@ -2,7 +2,7 @@ from .eigenpro import KernelModel
     
 import torch, numpy as np
 from torchmetrics.functional.classification import accuracy
-from .generic_kernels import Kernel, LaplaceKernel
+from .generic_kernels import Kernel, LaplaceKernel, ProductLaplaceKernel
 from .kernels import laplacian_M, gaussian_M, euclidean_distances_M, laplacian_gen, get_laplace_gen_agop, ntk_kernel
 from tqdm.contrib import tenumerate
 from .utils import matrix_power, get_data_from_loader
@@ -76,6 +76,20 @@ class RecursiveFeatureMachine(torch.nn.Module):
             return tensor.clone()
         else:
             return tensor.cpu()
+        
+    def set_categorical_indices(self, numerical_indices, categorical_indices, categorical_vectors, device=None):
+        """
+        :param numerical_indices: torch.Tensor(n_num,)
+        :param categorical_indices: List of torch.Tensor(d_cat_i,) for each categorical feature
+        :param categorical_vectors: List of torch.Tensor(d_cat_i, d_cat_i) for each categorical feature. Each row is the encoding for that index.
+        """
+        if self.kernel_type != 'generic' or not isinstance(self.kernel_obj, ProductLaplaceKernel):
+            raise ValueError("Can only set categorical indices for generic kernels with ProductLaplaceKernel")
+        assert len(categorical_indices) == len(categorical_vectors), "Number of categorical index and vector groups must match"
+        assert len(numerical_indices) > 0 or len(categorical_indices) > 0, "No numerical or categorical features"
+
+        self.kernel_obj.set_categorical_indices(numerical_indices, categorical_indices, categorical_vectors, device=device)
+        return
 
     def update_best_params(self, best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, current_metric, current_iter):
         # if classification and accuracy higher, or if regression and mse lower
@@ -201,6 +215,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         :param fit_last_M: if True, fit the Mahalanobis matrix one last time after training
         :param prefit_eigenpro: if True, prefit EigenPro with a subset of <= max_lstsq_size samples
         """
+
         self.verbose = verbose
         self.fit_using_eigenpro = (method.lower()=='eigenpro')
         self.prefit_eigenpro = prefit_eigenpro
@@ -225,7 +240,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.keep_device = X_train.shape[1] > X_train.shape[0] # keep previous Ms on GPU if more features than samples
 
-        mses, Ms = [], []
+        metrics, Ms = [], []
         best_alphas, best_M, best_sqrtM = None, None, None
         best_metric = float('inf') if not classification else 0 
         best_iter = None
@@ -265,7 +280,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             
             if return_Ms:
                 Ms.append(self.tensor_copy(self.M))
-                mses.append(test_mse)
+                metrics.append(test_acc if classification else test_mse)
 
         self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                            verbose=verbose, classification=classification, 
@@ -306,7 +321,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.agop_best_model = Ms[best_iter]
 
         if return_Ms:
-            return Ms, mses
+            return Ms, metrics
             
         return final_mse
     

@@ -28,6 +28,27 @@ def matrix_power(M, power):
     else:
         raise ValueError(f"Invalid matrix shape for square root: {M.shape}")
     
+def stable_matrix_power(M, power):
+    """
+    Compute the power of a matrix.
+    :param M: Matrix to power.
+    :param power: Power to raise the matrix to.
+    :return: Matrix raised to the power - M^{power}.
+    """
+    if len(M.shape) == 2:
+        assert M.shape[0] == M.shape[1], "Matrix must be square"
+
+        if power==0.5:
+            return sqrtm(M.cpu()).to(M.device)
+        else:
+            return fractional_matrix_power(M.cpu(), power).to(M.device)
+    elif len(M.shape) == 1:
+        assert M.shape[0] > 0, "Vector must be non-empty"
+        M[M<0] = 0.
+        return M**power
+    else:
+        raise ValueError(f"Invalid matrix shape for square root: {M.shape}")
+    
 def get_data_from_loader(data_loader):
     """
     Get data from a data loader.
