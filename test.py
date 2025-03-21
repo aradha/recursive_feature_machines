@@ -35,7 +35,7 @@ y_test = fstar(X_test).cuda()
 
 print(f'X_train.shape: {X_train.shape}, y_train.shape: {y_train.shape}')
 
-model = LaplaceRFM(bandwidth=bw, diag=False, reg=reg, device='cuda')
+model = LaplaceRFM(bandwidth=bw, diag=False, reg=reg, device='cuda', centering=True)
 
 
 start_time = time.time()
@@ -50,7 +50,7 @@ model.fit(
 print(f'LaplaceRFM Time: {time.time()-start_time:g} s')
 
 
-model = GenericRFM(LaplaceKernel(bandwidth=bw, exponent=1.0), diag=False, reg=reg, device='cuda')
+model = GenericRFM(LaplaceKernel(bandwidth=bw, exponent=1.0), diag=False, reg=reg, device='cuda', centering=True)
 
 start_time = time.time()
 
