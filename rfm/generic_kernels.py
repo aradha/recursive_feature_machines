@@ -81,19 +81,23 @@ class Kernel:
         return self._transform_m(grads, mat)
 
     def get_agop(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
-                 mat: Optional[torch.Tensor] = None) -> torch.Tensor:
+                 mat: Optional[torch.Tensor] = None, center_grads: bool = False) -> torch.Tensor:
         # see get_function_grads
         f_grads = self.get_function_grads(x, z, coefs, mat)
         # merge output and n_z dims
         f_grads = f_grads.reshape(-1, f_grads.shape[-1])
+        if center_grads:
+            f_grads = f_grads - f_grads.mean(dim=0, keepdim=True)
         return f_grads.transpose(-1, -2) @ f_grads
 
     def get_agop_diag(self, x: torch.Tensor, z: torch.Tensor, coefs: torch.Tensor,
-                      mat: Optional[torch.Tensor] = None) -> torch.Tensor:
+                      mat: Optional[torch.Tensor] = None, center_grads: bool = False) -> torch.Tensor:
         # see get_function_grads
         f_grads = self.get_function_grads(x, z, coefs, mat)
         # merge output and n_z dims
         f_grads = f_grads.reshape(-1, f_grads.shape[-1])
+        if center_grads:
+            f_grads = f_grads - f_grads.mean(dim=0, keepdim=True)
         return f_grads.square().sum(dim=-2)
 
 

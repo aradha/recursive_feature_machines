@@ -415,7 +415,7 @@ class GenericRFM(RecursiveFeatureMachine):
                 self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
 
         agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
-        agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM)
+        agop = agop_func(x=self.centers, z=samples, coefs=self.weights.t(), mat=self.sqrtM, center_grads=self.centering)
         return agop
 
 class LaplaceRFM(RecursiveFeatureMachine):
