@@ -41,9 +41,9 @@ def stable_matrix_power(M, power):
         M_cpu = M.cpu()
         M_cpu.diagonal().add_(1e-8)
         if power==0.5:
-            return sqrtm(M_cpu).to(M.device)
+            return torch.from_numpy(sqrtm(M_cpu.numpy())).to(device=M.device, dtype=M.dtype)
         else:
-            return fractional_matrix_power(M_cpu, power).to(M.device)
+            return torch.from_numpy(fractional_matrix_power(M_cpu.numpy(), power)).to(device=M.device, dtype=M.dtype)
     elif len(M.shape) == 1:
         assert M.shape[0] > 0, "Vector must be non-empty"
         M[M<0] = 0.
