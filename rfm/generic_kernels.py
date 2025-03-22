@@ -244,15 +244,16 @@ class ProductLaplaceKernel(Kernel):
                 kernel_mat.pow_(self.exponent)
             return kernel_mat
 
-        xnum = x[:, numerical_indices]
-        znum = z[:, numerical_indices]
+        
         mat_num = get_sub_matrix(mat, numerical_indices)
+        xnum = self._transform_m(x[:, numerical_indices], mat_num)
+        znum = self._transform_m(z[:, numerical_indices], mat_num)
 
         batch_size = self.get_sample_batch_size(znum.shape[0], znum.shape[1])
         print("Computed batch size", batch_size)
         dist_mat = torch.zeros((xnum.shape[0], znum.shape[0]), device=xnum.device, dtype=xnum.dtype)
         for i in range(0, xnum.shape[0], batch_size):
-            dist_mat[i:i+batch_size, :] = dist_fn(self._transform_m(xnum[i:i+batch_size], mat_num), self._transform_m(znum, mat_num))
+            dist_mat[i:i+batch_size, :] = dist_fn(xnum[i:i+batch_size], znum)
 
         # For each categorical feature
         for cat_idx, cat_vecs in zip(categorical_indices, categorical_vectors):
