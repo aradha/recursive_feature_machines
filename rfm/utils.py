@@ -32,7 +32,7 @@ def matrix_power(M, power):
             sqrtM = sqrtm(M_cpu)
         else:
             sqrtM = fractional_matrix_power(M_cpu, power)
-        sqrtM = torch.from_numpy(sqrtM).to(M.device)
+        sqrtM = torch.as_tensor(sqrtM, dtype=torch.float32, device=M.device)
         return sqrtM
 
     elif len(M.shape) == 1:
