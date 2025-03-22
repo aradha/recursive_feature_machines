@@ -211,7 +211,7 @@ class ProductLaplaceKernel(Kernel):
         self.exponent = exponent
         self.eps = eps  # this one is for numerical stability
 
-    def get_sample_batch_size(self, n: int, d: int, scalar_size: int = 4, mem_constant: float = 15) -> int:
+    def get_sample_batch_size(self, n: int, d: int, scalar_size: int = 4, mem_constant: float = 20) -> int:
         total_memory_possible = torch.cuda.get_device_properties(torch.device('cuda')).total_memory
         curr_mem_use = torch.cuda.memory_allocated()
         available_memory = total_memory_possible - curr_mem_use
@@ -249,6 +249,7 @@ class ProductLaplaceKernel(Kernel):
         mat_num = get_sub_matrix(mat, numerical_indices)
 
         batch_size = self.get_sample_batch_size(znum.shape[0], znum.shape[1])
+        print("Computed batch size", batch_size)
         dist_mat = torch.zeros((xnum.shape[0], znum.shape[0]), device=xnum.device, dtype=xnum.dtype)
         for i in range(0, xnum.shape[0], batch_size):
             dist_mat[i:i+batch_size, :] = dist_fn(self._transform_m(xnum[i:i+batch_size], mat_num), self._transform_m(znum, mat_num))
@@ -271,7 +272,7 @@ class ProductLaplaceKernel(Kernel):
             for i in range(0, x_cat.shape[0], batch_size):
                 # Index into the kernel matrix using the categorical indices in batches
                 # This creates a matrix of shape (batch_size, n_z) with the appropriate kernel values
-                dist_mat[i:i+batch_size] += cat_embedding_kernel[x_cat[i:i+batch_size, None], z_cat[None, :]]
+                dist_mat[i:i+batch_size].add_(cat_embedding_kernel[x_cat[i:i+batch_size, None], z_cat[None, :]])
 
         dist_mat.mul_(-1./(self.bandwidth**self.exponent))
         dist_mat.exp_()

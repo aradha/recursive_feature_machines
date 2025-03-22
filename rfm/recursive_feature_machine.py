@@ -207,7 +207,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         :param verbose: if True, print progress
         :param M_batch_size: batch size over samples for AGOP computation
         :param return_best_params: if True, return the best parameters
-        :param bs: batch size for prediction
+        :param bs: batch size for eigenpro
         :param return_Ms: if True, return the Mahalanobis matrix at each iteration
         :param lr_scale: learning rate scale for EigenPro
         :param total_points_to_sample: number of points to sample for AGOP computation
@@ -252,17 +252,22 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                verbose=verbose, solver=solver, 
                                **kwargs)
             
+            print("Scoring now")
+            
             if classification:
-                test_acc = self.score(X_test, y_test, bs, metric='accuracy')
+                test_metrics = self.score(X_test, y_test, metrics=['mse', 'accuracy'])
+                test_acc = test_metrics['accuracy']
+                test_mse = test_metrics['mse']
                 if method == 'lstsq':
-                    train_acc = self.score(X_train, y_train, bs, metric='accuracy')
+                    train_metrics = self.score(X_train, y_train, metrics=['mse', 'accuracy'])
+                    train_acc = train_metrics['accuracy']
                     if verbose:
                         print(f"Round {i}, Train Acc: {100*train_acc:.2f}%, Test Acc: {100*test_acc:.2f}%")
                 else:
                     if verbose:
                         print(f"Round {i}, Test Acc: {100*test_acc:.2f}%")
-
-            test_mse = self.score(X_test, y_test, bs, metric='mse')
+            else:
+                test_mse = self.score(X_test, y_test, metrics=['mse'])['mse']
 
             if verbose:
                 print(f"Round {i}, Test MSE: {test_mse:.4f}")
@@ -284,15 +289,18 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                            verbose=verbose, classification=classification, 
-                           bs=bs, **kwargs)
-        final_mse = self.score(X_test, y_test, bs=bs, metric='mse')
-        
-        if verbose:
-            print(f"Final MSE: {final_mse:.4f}")
+                           bs=bs, **kwargs)        
         if classification:
-            final_test_acc = self.score(X_test, y_test, bs=bs, metric='accuracy')
+            final_test_metrics = self.score(X_test, y_test, metrics=['mse', 'accuracy'])
+            final_test_acc = final_test_metrics['accuracy']
+            final_mse = final_test_metrics['mse']
             if verbose:
                 print(f"Final Test Acc: {100*final_test_acc:.2f}%")
+        else:
+            final_mse = self.score(X_test, y_test, metrics=['mse'])['mse']
+
+        if verbose:
+            print(f"Final MSE: {final_mse:.4f}")
 
         if return_best_params:
             best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth = self.update_best_params(best_metric, best_alphas, best_M, 
@@ -347,9 +355,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             BYTES_PER_SCALAR = self.M.element_size()
             c = labels.shape[-1]
             M_batch_size = self._compute_optimal_M_batch(n, c, d, scalar_size=BYTES_PER_SCALAR)
-
-            if verbose:
-                print(f"Using batch size of {M_batch_size}")
         
         batches = torch.arange(n).split(M_batch_size)
 
@@ -373,34 +378,30 @@ class RecursiveFeatureMachine(torch.nn.Module):
         del M
 
         
-    def score(self, samples, targets, bs, metric='mse'):
+    def score(self, samples, targets, metrics):
         """
         samples: torch.Tensor of shape (n, d)
         targets: torch.Tensor of shape (n, c)
-        bs: batch size over samples for prediction
-        metric: 'mse' or 'accuracy'
+        metrics: list of metrics to compute
         """
-        if bs is None:
-            preds = self.predict(samples.to(self.device)).to(targets.device)
-        else:
-            preds = torch.zeros(samples.shape[0], targets.shape[1], device=targets.device)
-            for i in range(0, samples.shape[0], bs):
-                preds[i:i+bs] = self.predict(samples[i:i+bs].to(self.device)).to(targets.device)
-        if metric=='accuracy':
+        preds = self.predict(samples.to(self.device)).to(targets.device)
+        out_metrics = {}
+        if 'accuracy' in metrics:
             if preds.shape[-1]==1:
                 num_classes = len(torch.unique(targets))
                 if num_classes==2:
                     preds = torch.where(preds > 0.5, 1, 0).reshape(targets.shape)
-                    return accuracy(preds, targets, task="binary").item()
+                    out_metrics['accuracy'] = accuracy(preds, targets, task="binary").item()
                 else:
-                    return accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
+                    out_metrics['accuracy'] = accuracy(preds, targets, task="multiclass", num_classes=num_classes).item()
             else:
                 preds_ = torch.argmax(preds,dim=-1)
                 targets_ = torch.argmax(targets,dim=-1)
-                return accuracy(preds_, targets_, task="multiclass", num_classes=preds.shape[-1]).item()
+                out_metrics['accuracy'] = accuracy(preds_, targets_, task="multiclass", num_classes=preds.shape[-1]).item()
         
-        elif metric=='mse':
-            return (targets - preds).pow(2).mean()
+        if 'mse' in metrics:
+            out_metrics['mse'] = (targets - preds).pow(2).mean()
+        return out_metrics
 
 class GenericRFM(RecursiveFeatureMachine):
     """
