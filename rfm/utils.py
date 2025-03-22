@@ -18,9 +18,23 @@ def matrix_power(M, power):
         assert M.shape[0] == M.shape[1], "Matrix must be square"
 
         # gpu square root
-        S, U = torch.linalg.eigh(M)
-        S[S<0] = 0.
-        return U @ torch.diag(S**power) @ U.T
+        # S, U = torch.linalg.eigh(M)
+        # S[S<0] = 0.
+        # return U @ torch.diag(S**power) @ U.T
+
+        # CPU square root to avoid rare bugs
+        # cannot try GPU eigh first because it can still run into bugs even with a try/except
+        # https://github.com/pytorch/pytorch/issues/105359
+        M_cpu = M.cpu().clone()
+        # 1e-8 was perhaps too small in some failure case where all entries of M were identical
+        M_cpu.diagonal().add_(1e-6)
+        if power == 0.5:
+            sqrtM = sqrtm(M_cpu)
+        else:
+            sqrtM = fractional_matrix_power(M_cpu, power)
+        sqrtM = torch.as_tensor(sqrtM, dtype=torch.float32, device=M.device)
+        return sqrtM
+
     elif len(M.shape) == 1:
         assert M.shape[0] > 0, "Vector must be non-empty"
         M[M<0] = 0.
