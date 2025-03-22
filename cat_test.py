@@ -12,9 +12,9 @@ torch.manual_seed(0)
 M_batch_size = 256
 
 
-n = 20000 # samples
+n = 2000 # samples
 d = 10  # dimension
-n_cats = [2000, 2000]
+n_cats = [200, 200]
 
 def fstar(X):
     return (X[:,0]**2)[:,None].float()

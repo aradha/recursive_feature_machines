@@ -255,11 +255,14 @@ class ProductLaplaceKernel(Kernel):
         print("Computed batch size", batch_size)
         # start_time = time.time()
         dist_mat = torch.zeros((xnum.shape[0], znum.shape[0]), device=xnum.device, dtype=xnum.dtype)
-        for i in range(0, xnum.shape[0], batch_size):
-            dist_mat[i:i+batch_size, :] = dist_fn(xnum[i:i+batch_size], znum)
+        num_batch_size = 2*batch_size
+        # print("Computed num_batch_size", num_batch_size)
+        for i in range(0, xnum.shape[0], num_batch_size):
+            dist_mat[i:i+num_batch_size, :] = dist_fn(xnum[i:i+num_batch_size], znum)
         # print("Time taken for numerical part", time.time() - start_time)
 
         # For each categorical feature
+        # cat_start_time = time.time()
         for cat_idx, cat_vecs in zip(categorical_indices, categorical_vectors):
 
             x_cat = x[:, cat_idx].argmax(dim=-1)
@@ -284,6 +287,8 @@ class ProductLaplaceKernel(Kernel):
                 # Index into the kernel matrix using the categorical indices in batches
                 # This creates a matrix of shape (batch_size, n_z) with the appropriate kernel values
                 dist_mat[i:i+batch_size].add_(cat_embedding_kernel[x_cat[i:i+batch_size, None], z_cat[None, :]])
+
+        # print("Time taken for categorical part", time.time() - cat_start_time)
 
         dist_mat.mul_(-1./(self.bandwidth**self.exponent))
         dist_mat.exp_()

@@ -414,6 +414,12 @@ class GenericRFM(RecursiveFeatureMachine):
         self.kernel_obj = kernel
         self.kernel_type = 'generic'
         self.agop_power = agop_power
+
+        print("Setting kernel_obj.bandwidth to:", self.kernel_obj.bandwidth)
+        print("Setting kernel_obj.exponent to:", self.kernel_obj.exponent)
+        print("Setting agop_power to:", self.agop_power)
+        print("Setting diag to:", self.diag)
+        print("Setting centering to:", self.centering)
         
     def kernel(self, x, z):
         return self.kernel_obj.get_kernel_matrix(x, z, self.sqrtM)
