@@ -253,39 +253,37 @@ class ProductLaplaceKernel(Kernel):
 
         batch_size = self.get_sample_batch_size(znum.shape[0], znum.shape[1])
         print("Computed batch size", batch_size)
-        start_time = time.time()
+        # start_time = time.time()
         dist_mat = torch.zeros((xnum.shape[0], znum.shape[0]), device=xnum.device, dtype=xnum.dtype)
         for i in range(0, xnum.shape[0], batch_size):
             dist_mat[i:i+batch_size, :] = dist_fn(xnum[i:i+batch_size], znum)
-        print("Time taken for numerical part", time.time() - start_time)
+        # print("Time taken for numerical part", time.time() - start_time)
 
         # For each categorical feature
         for cat_idx, cat_vecs in zip(categorical_indices, categorical_vectors):
+
+            x_cat = x[:, cat_idx].argmax(dim=-1)
+            z_cat = z[:, cat_idx].argmax(dim=-1)
+
             # Get the kernel matrix for this categorical feature's embeddings
-            start_time = time.time()
+            # start_time = time.time()
             mat_cat = get_sub_matrix(mat, cat_idx)
             cat_vecs_transformed = self._transform_m(cat_vecs, mat_cat)
-            print("Time taken for categorical embeddings", time.time() - start_time)
+            # print("Time taken for categorical embeddings", time.time() - start_time)
 
-            start_time = time.time()
+            # start_time = time.time()
             cat_embedding_kernel = dist_fn(cat_vecs_transformed, cat_vecs_transformed)
-            print("Time taken for categorical kernel", time.time() - start_time)
+            # print("Time taken for categorical kernel", time.time() - start_time)
 
             # Index into the kernel matrix using the categorical indices
             # This creates a matrix of shape (n_x, n_z) with the appropriate kernel values
             # Batch over x_cat to avoid potential memory issues
-            start_time = time.time()
+            # start_time = time.time()
+            
             for i in range(0, x.shape[0], batch_size):
                 # Index into the kernel matrix using the categorical indices in batches
                 # This creates a matrix of shape (batch_size, n_z) with the appropriate kernel values
-                # dist_mat[i:i+batch_size].add_(cat_embedding_kernel[x_cat[i:i+batch_size, None], z_cat[None, :]])
-
-                # Use einsum for efficient matrix multiplication
-                result = torch.einsum('ij,jk,lk->il', x[i:i+batch_size].float(), cat_embedding_kernel, z.float())
-                dist_mat[i:i+batch_size].add_(result)
-            print("Time taken for batching", time.time() - start_time)
-
-        print("Time taken for categorical part", time.time() - start_time)
+                dist_mat[i:i+batch_size].add_(cat_embedding_kernel[x_cat[i:i+batch_size, None], z_cat[None, :]])
 
         dist_mat.mul_(-1./(self.bandwidth**self.exponent))
         dist_mat.exp_()

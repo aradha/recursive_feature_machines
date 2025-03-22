@@ -88,7 +88,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         assert len(categorical_indices) == len(categorical_vectors), "Number of categorical index and vector groups must match"
         assert len(numerical_indices) > 0 or len(categorical_indices) > 0, "No numerical or categorical features"
 
-        self.kernel_obj.set_categorical_indices(numerical_indices, categorical_indices, categorical_vectors, device=device)
+        self.kernel_obj.set_categorical_indices(numerical_indices, categorical_indices, categorical_vectors, device=self.device if device is None else device)
         return
 
     def update_best_params(self, best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth, current_metric, current_iter):
