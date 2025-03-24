@@ -76,7 +76,7 @@ def laplacian(samples, centers, bandwidth):
     kernel_mat.exp_()
     return kernel_mat
 
-def laplacian_M(samples, centers, M, bandwidth):
+def laplacian_M(samples, centers, M, bandwidth, diag=False):
     assert bandwidth > 0
     if M is None:
         kernel_mat = euclidean_distances(samples, centers, squared=False)

@@ -72,7 +72,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         :param keep_device: If True, the device of the original tensor is kept.
         :return: CPU copy of the tensor.
         """
-        if self.keep_device or tensor.device.type == 'cpu':
+        if tensor is None:
+            return None
+        elif self.keep_device or tensor.device.type == 'cpu':
             return tensor.clone()
         else:
             return tensor.cpu()
@@ -98,23 +100,16 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_alphas = self.tensor_copy(self.weights)
             best_iter = current_iter
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-            if self.M is not None:
-                best_M = self.tensor_copy(self.M)
-                best_sqrtM = self.tensor_copy(self.sqrtM)
-            else:
-                best_M = None
-                best_sqrtM = None
+            best_M = self.tensor_copy(self.M)
+            best_sqrtM = self.tensor_copy(self.sqrtM)
+
         elif not self.classification and current_metric < best_metric:
             best_metric = current_metric
             best_alphas = self.tensor_copy(self.weights)
             best_iter = current_iter
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
-            if self.M is not None:
-                best_M = self.tensor_copy(self.M)
-                best_sqrtM = self.tensor_copy(self.sqrtM)
-            else:
-                best_M = None
-                best_sqrtM = None
+            best_M = self.tensor_copy(self.M)
+            best_sqrtM = self.tensor_copy(self.sqrtM)
 
         return best_metric, best_alphas, best_M, best_sqrtM, best_iter, best_bandwidth
         
@@ -127,15 +122,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
             self.reset_adaptive_bandwidth()
 
         self.centers = centers
-        if self.M is None:
-            if self.diag:
-                self.M = torch.ones(centers.shape[-1], device=self.device, dtype=centers.dtype)
-                if self.use_sqrtM:
-                    self.sqrtM = torch.ones(centers.shape[-1], device=self.device, dtype=centers.dtype)
-            else:
-                self.M = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
-                if self.use_sqrtM:
-                    self.sqrtM = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
 
         if self.fit_using_eigenpro:
             if self.prefit_eigenpro:
@@ -361,9 +347,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
             if self.diag else torch.zeros(d, d, dtype=samples.dtype, device=self.device))
         
 
-        
         if M_batch_size is None: 
-            BYTES_PER_SCALAR = self.M.element_size()
+            BYTES_PER_SCALAR = samples.element_size()
             c = labels.shape[-1]
             M_batch_size = self._compute_optimal_M_batch(n, c, d, scalar_size=BYTES_PER_SCALAR)
         
@@ -442,9 +427,13 @@ class GenericRFM(RecursiveFeatureMachine):
         if self.M is None:
             if self.diag:
                 self.M = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
-                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
             else:
                 self.M = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+
+        if self.sqrtM is None:
+            if self.diag:
+                self.sqrtM = torch.ones(samples.shape[-1], device=samples.device, dtype=samples.dtype)
+            else:
                 self.sqrtM = torch.eye(samples.shape[-1], device=samples.device, dtype=samples.dtype)
 
         agop_func = self.kernel_obj.get_agop_diag if self.diag else self.kernel_obj.get_agop
