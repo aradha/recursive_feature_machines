@@ -220,7 +220,20 @@ class ProductLaplaceKernel(Kernel):
         return int(available_memory / (mem_constant*n*scalar_size))
 
     def _get_kernel_matrix_impl(self, x: torch.Tensor, z: torch.Tensor, mat: Optional[torch.Tensor] = None) -> torch.Tensor:
-        kernel_mat = torch.cdist(self._transform_m(x, mat), self._transform_m(z, mat), p=self.exponent)
+        n, d = z.shape
+        if n < 60_000:
+            batch_size = 40_000
+        else:
+            batch_size = 20_000
+
+        print("Batch size", batch_size)
+        if x.shape[0] <= batch_size:
+            kernel_mat = torch.cdist(self._transform_m(x, mat), self._transform_m(z, mat), p=self.exponent)
+        else:
+            kernel_mat = torch.empty((x.shape[0], z.shape[0]), device=x.device, dtype=x.dtype)
+            for i in range(0, x.shape[0], batch_size):
+                kernel_mat[i:i+batch_size] = torch.cdist(self._transform_m(x[i:i+batch_size], mat), self._transform_m(z, mat), p=self.exponent)
+
         kernel_mat.clamp_(min=0)
         if not self.is_adaptive_bandwidth:
             self._adapt_bandwidth(kernel_mat)

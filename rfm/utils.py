@@ -38,12 +38,18 @@ def stable_matrix_power(M, power):
     """
     if len(M.shape) == 2:
         assert M.shape[0] == M.shape[1], "Matrix must be square"
-        M_cpu = M.cpu()
-        M_cpu.diagonal().add_(1e-8)
-        if power==0.5:
-            return torch.from_numpy(sqrtm(M_cpu.numpy())).to(device=M.device, dtype=M.dtype)
+        if M.shape[0] < 700:
+            M_cpu = M.cpu().float()
+            M_cpu.diagonal().add_(1e-8)
+            U, S, _ = torch.linalg.svd(M_cpu)
+            S[S<0] = 0.
+            return (U @ torch.diag(S**power) @ U.T).to(device=M.device, dtype=M.dtype)
         else:
-            return torch.from_numpy(fractional_matrix_power(M_cpu.numpy(), power)).to(device=M.device, dtype=M.dtype)
+            M.diagonal().add_(1e-8)
+            S, U = torch.linalg.eigh(M)
+            S[S<0] = 0.
+            return (U @ torch.diag(S**power) @ U.T).to(device=M.device, dtype=M.dtype)
+
     elif len(M.shape) == 1:
         assert M.shape[0] > 0, "Vector must be non-empty"
         M[M<0] = 0.

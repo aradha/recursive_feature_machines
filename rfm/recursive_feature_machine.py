@@ -100,8 +100,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.tensor_copy(self.M)
-                if self.use_sqrtM:
-                    best_sqrtM = matrix_power(self.M, self.agop_power)
+                best_sqrtM = self.tensor_copy(self.sqrtM)
             else:
                 best_M = None
                 best_sqrtM = None
@@ -112,8 +111,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
             best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
             if self.M is not None:
                 best_M = self.tensor_copy(self.M)
-                if self.use_sqrtM:
-                    best_sqrtM = matrix_power(self.M, self.agop_power)
+                best_sqrtM = self.tensor_copy(self.sqrtM)
             else:
                 best_M = None
                 best_sqrtM = None
@@ -132,15 +130,21 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.M is None:
             if self.diag:
                 self.M = torch.ones(centers.shape[-1], device=self.device, dtype=centers.dtype)
+                if self.use_sqrtM:
+                    self.sqrtM = torch.ones(centers.shape[-1], device=self.device, dtype=centers.dtype)
             else:
                 self.M = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
+                if self.use_sqrtM:
+                    self.sqrtM = torch.eye(centers.shape[-1], device=self.device, dtype=centers.dtype)
+
         if self.fit_using_eigenpro:
             if self.prefit_eigenpro:
                 random_indices = torch.randperm(centers.shape[0])[:self.max_lstsq_size]
                 start = time.time()
+                print(f"Prefitting Eigenpro with {len(random_indices)} points")
                 sub_weights = self.fit_predictor_lstsq(centers[random_indices], targets[random_indices], solver=solver)
                 end = time.time()
-                print(f"Time taken to prefit Eigenpro with {self.max_lstsq_size} points: {end-start} seconds")
+                print(f"Time taken to prefit Eigenpro with {len(random_indices)} points: {end-start} seconds")
                 initial_weights = torch.zeros_like(targets)
                 initial_weights[random_indices] = sub_weights.to(targets.device, dtype=targets.dtype)
             else:
@@ -165,6 +169,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.reg > 0:
             kernel_matrix.diagonal().add_(self.reg)
         
+        print("Current memory allocated before solve:", torch.cuda.memory_allocated()/1024**3, "GB")
+        torch.cuda.empty_cache()
+        
         if solver == 'solve':
             out = torch.linalg.solve(kernel_matrix, targets)
         elif solver == 'cholesky':
@@ -184,7 +191,7 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if initial_weights is not None:
             ep_model.weight = initial_weights.to(ep_model.weight.device, dtype=ep_model.weight.dtype)
         _ = ep_model.fit(centers, targets, verbose=verbose, mem_gb=self.mem_gb, bs=bs, lr_scale=lr_scale, **kwargs)
-        return ep_model.weight
+        return ep_model.weight.clone()
 
 
     def predict(self, samples):
@@ -246,14 +253,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_iter = None
         best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
         for i in range(iters):
+            print(f"Current memory allocated at iteration {i}:", torch.cuda.memory_allocated()/1024**3, "GB")
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification,
                                bs=bs, lr_scale=lr_scale, 
                                verbose=verbose, solver=solver, 
                                **kwargs)
-            
-            print("Scoring now")
-            
+                        
             if classification:
                 test_metrics = self.score(X_test, y_test, metrics=['mse', 'accuracy'])
                 test_acc = test_metrics['accuracy']
@@ -278,10 +284,13 @@ class RecursiveFeatureMachine(torch.nn.Module):
                                                                                                                 best_M, best_sqrtM, 
                                                                                                                 best_iter, best_bandwidth, 
                                                                                                                 test_acc if classification else test_mse, i)
+                
 
             self.fit_M(X_train, y_train, verbose=verbose, M_batch_size=M_batch_size, 
                        use_sqrtM=self.use_sqrtM, total_points_to_sample=total_points_to_sample, 
                        **kwargs)
+            
+            del self.weights
             
             if return_Ms:
                 Ms.append(self.tensor_copy(self.M))
@@ -350,6 +359,8 @@ class RecursiveFeatureMachine(torch.nn.Module):
         M = torch.zeros_like(self.M) if self.M is not None else (
             torch.zeros(d, dtype=samples.dtype, device=self.device) 
             if self.diag else torch.zeros(d, d, dtype=samples.dtype, device=self.device))
+        
+
         
         if M_batch_size is None: 
             BYTES_PER_SCALAR = self.M.element_size()
