@@ -155,8 +155,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         if self.reg > 0:
             kernel_matrix.diagonal().add_(self.reg)
         
-        print("Current memory allocated before solve:", torch.cuda.memory_allocated()/1024**3, "GB")
-        torch.cuda.empty_cache()
         
         if solver == 'solve':
             out = torch.linalg.solve(kernel_matrix, targets)
@@ -239,7 +237,6 @@ class RecursiveFeatureMachine(torch.nn.Module):
         best_iter = None
         best_bandwidth = self.bandwidth if self.kernel_type != 'generic' else self.kernel_obj.bandwidth+0
         for i in range(iters):
-            print(f"Current memory allocated at iteration {i}:", torch.cuda.memory_allocated()/1024**3, "GB")
             self.fit_predictor(X_train, y_train, X_val=X_test, y_val=y_test, 
                                classification=classification,
                                bs=bs, lr_scale=lr_scale, 
@@ -329,6 +326,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
         return final_mse
     
     def _compute_optimal_M_batch(self, n, c, d, scalar_size=4, mem_constant=2):
+        if self.device in ['cpu', torch.device('cpu')]:
+            return n 
+        
         """Computes the optimal batch size for AGOP."""
         total_memory_possible = torch.cuda.get_device_properties(self.device).total_memory
         curr_mem_use = torch.cuda.memory_allocated()
@@ -361,11 +361,9 @@ class RecursiveFeatureMachine(torch.nn.Module):
 
         if verbose:
             for i, bids in tenumerate(batches):
-                torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
         else:
             for bids in batches:
-                torch.cuda.empty_cache()
                 M.add_(self.update_M(samples[bids], p_batch_size))
         
         self.M = M / (M.max() + 1e-30)
