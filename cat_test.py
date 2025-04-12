@@ -52,8 +52,21 @@ for n_cat in n_cats:
     d += n_cat
 
 # print(f'X_train.shape: {X_train.shape}, y_train.shape: {y_train.shape}')
+d=700
+a = torch.randn(d, d)
+a = a@a.T
+a = a.float()
 
-
+from scipy.linalg import sqrtm, fractional_matrix_power
+M_cpu = torch.randn(d, d)
+M_cpu = M_cpu@M_cpu.T
+M_cpu = M_cpu.float()
+start_time = time.time()
+M_cpu = torch.from_numpy(fractional_matrix_power(M_cpu, 0.67))
+tot = time.time()-start_time
+print(f'Time taken: {tot:g} s')
+print(M_cpu)
+exit()
 # import adit_rfm
 # start_time = time.time()
 # model = adit_rfm.rfm(
