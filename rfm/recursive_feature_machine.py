@@ -312,12 +312,39 @@ class RecursiveFeatureMachine(torch.nn.Module):
     
     def _compute_optimal_M_batch(self, n, c, d, scalar_size=4, mem_constant=2):
         """Computes the optimal batch size for AGOP."""
-        total_memory_possible = torch.cuda.get_device_properties(self.device).total_memory
-        curr_mem_use = torch.cuda.memory_allocated()
-        available_memory = total_memory_possible - curr_mem_use
-        M_batch_size = int(available_memory / (mem_constant*n*c*d*scalar_size))
-        print("Optimal M batch size: ", M_batch_size)
-        return M_batch_size
+        # Check if the device is CPU
+        if self.device.type == 'cpu':
+            # Estimate available memory based on user-provided mem_gb for CPU
+            # This is an approximation, as precise CPU memory tracking like CUDA's isn't standard.
+            # We use the mem_gb parameter passed during RFM initialization.
+            available_memory = self.mem_gb * (1024**3)
+            # Ensure minimum estimated memory to avoid division by zero or negative batch size
+            available_memory = max(available_memory, n * c * scalar_size + n*d*scalar_size + d*d*scalar_size + mem_constant * (n+d) * scalar_size) 
+        else:
+            # Original logic for CUDA devices (assuming torch was compiled with CUDA)
+            try:
+                total_memory_possible = torch.cuda.get_device_properties(self.device).total_memory
+                curr_mem_use = torch.cuda.memory_allocated()
+                available_memory = total_memory_possible - curr_mem_use
+            except AssertionError:
+                 # Fallback if CUDA calls fail unexpectedly (e.g., broken build despite device check)
+                 print("Warning: CUDA check failed unexpectedly. Falling back to CPU memory estimation.")
+                 available_memory = self.mem_gb * (1024**3) 
+                 available_memory = max(available_memory, n * c * scalar_size + n*d*scalar_size + d*d*scalar_size + mem_constant * (n+d) * scalar_size)
+
+        # Calculation remains the same, but uses the appropriately determined available_memory
+        # The denominator represents the approximate memory needed per unit increase in batch size
+        denominator = mem_constant * (n+d) * scalar_size
+        if denominator <= 0: # Avoid division by zero or negative values
+            optimal_batch_size = 1 
+        else:
+            # Memory required for fixed components (data, labels, M matrix?)
+            fixed_memory_estimate = n * c * scalar_size + n*d*scalar_size + d*d*scalar_size 
+            # Calculate optimal size based on remaining memory and per-batch-unit cost
+            optimal_batch_size = (available_memory - fixed_memory_estimate) / denominator
+        
+        # Ensure batch size is at least 1 and is an integer
+        return max(1, int(optimal_batch_size))
     
     def fit_M(self, samples, labels, p_batch_size=None, M_batch_size=None, 
               verbose=True, total_points_to_sample=20000, use_sqrtM=False, **kwargs):
